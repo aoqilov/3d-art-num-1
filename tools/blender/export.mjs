@@ -1,0 +1,20 @@
+// node tools/blender/export.mjs → tools/blender/out/block_t4.json (exterior triangles per material, block-local metres, Y up)
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+const { chromium } = createRequire(import.meta.url)('playwright');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const here = path.dirname(fileURLToPath(import.meta.url));
+const r = await build({ entryPoints: [path.join(here, 'dump_entry.ts')], bundle: true, format: 'iife', write: false, logLevel: 'error', loader: { '.json': 'json' } });
+const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const p = await b.newPage();
+p.on('pageerror', (e) => console.log('ERR', e.message));
+await p.setContent('<!doctype html><body></body>');
+await p.addScriptTag({ content: r.outputFiles[0].text });
+await p.waitForFunction('window.ready');
+const d = await p.evaluate('window.dump()');
+fs.writeFileSync(path.join(here, 'out/block_t4.json'), JSON.stringify(d));
+for (const g of d) console.log(g.name, g.count / 3 | 0, g.color);
+console.log('tris', d.reduce((t, g) => t + g.count / 3, 0));
+await b.close();

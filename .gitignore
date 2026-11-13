@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-pro/
+__pycache__/
+*.pyc
+.venv/
+*.blend1
+.vercel/
+.DS_Store
+Thumbs.db

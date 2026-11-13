@@ -1,0 +1,98 @@
+{
+ "plaster": {
+  "tile": 1.5,
+  "note": "interior paint over fine plaster"
+ },
+ "stucco": {
+  "tile": 1.0,
+  "note": "exterior sprayed facade plaster"
+ },
+ "brick": {
+  "tile": 1.04,
+  "note": "facing brick, 250x65 mm, running bond"
+ },
+ "parquet": {
+  "tile": 1.2,
+  "note": "lacquered oak planks, 150 mm wide"
+ },
+ "porcelain": {
+  "tile": 1.2,
+  "note": "60x60 polished porcelain, soft marble veins"
+ },
+ "terrazzo": {
+  "tile": 1.2,
+  "note": "60x60 terrazzo, public areas"
+ },
+ "walltile": {
+  "tile": 1.2,
+  "note": "30x60 glazed wall tile"
+ },
+ "outdoor": {
+  "tile": 1.2,
+  "note": "60x60 anti-slip porcelain, balconies"
+ },
+ "concrete": {
+  "tile": 2.0,
+  "note": "trowelled concrete"
+ },
+ "polished": {
+  "tile": 2.0,
+  "note": "polished concrete, shops"
+ },
+ "gravel": {
+  "tile": 2.0,
+  "note": "roof ballast gravel"
+ },
+ "veneer": {
+  "tile": 1.0,
+  "note": "oak veneer, grain along u"
+ },
+ "fabric": {
+  "tile": 0.25,
+  "note": "woven upholstery fabric"
+ },
+ "leather": {
+  "tile": 0.4,
+  "note": "pebbled leather"
+ },
+ "brushed": {
+  "tile": 0.6,
+  "note": "brushed stainless steel"
+ },
+ "panel": {
+  "tile": 1.0,
+  "note": "powder-coated / painted metal panel"
+ },
+ "asphalt_new": {
+  "tile": 4.0,
+  "note": "fresh dense asphalt, dark"
+ },
+ "asphalt_old": {
+  "tile": 8.0,
+  "note": "aged asphalt, patches & cracks"
+ },
+ "pavers_grey": {
+  "tile": 1.2,
+  "note": "grey 200x100 pavers, 90\u00b0 herringbone"
+ },
+ "pavers_red": {
+  "tile": 1.2,
+  "note": "red 200x100 pavers, running bond"
+ },
+ "pavers_mix": {
+  "tile": 1.2,
+  "note": "grey/red mixed 200x100 pavers, running bond"
+ },
+ "slab30": {
+  "tile": 1.2,
+  "note": "300x300 grey concrete sidewalk slabs"
+ },
+ "curb": {
+  "tile": 1.0,
+  "note": "precast concrete curb stone"
+ },
+ "roadpaint": {
+  "tile": 1.0,
+  "note": "white thermoplastic road marking, worn"
+ }
+}
