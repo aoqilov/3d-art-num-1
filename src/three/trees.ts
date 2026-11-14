@@ -2,8 +2,8 @@
 // Card normals point out of the crown centre so a crown shades like a soft volume, and the leaf alpha is used for
 // the shadow too. Four kinds common in Tashkent: plane tree (chinor), poplar (terak), juniper / pine (archa) and a
 // small fruit tree (mevali). One InstancedMesh per kind: thousands of trees in a handful of draw calls.
+// Now only the instant placeholder: the owner's GLB trees (glbTrees.ts) replace them once loaded.
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export type TreeKind = 'chinor' | 'terak' | 'archa' | 'mevali';
 export type TreeAt = { x: number; z: number; y?: number; s?: number; kind: TreeKind };
@@ -131,7 +131,8 @@ function getProtos() {
 export class Forest {
   readonly group = new THREE.Group();
   private leaves: THREE.MeshStandardMaterial[] = [];
-  constructor(list: TreeAt[]) {
+  /** shadow: false for far trees (a block's page: their shadows cost more than they show) */
+  constructor(list: TreeAt[], shadow = true) {
     const P = getProtos();
     for (const [kind, pr] of P) {
       const mine = list.filter((t) => t.kind === kind);
@@ -146,7 +147,7 @@ export class Forest {
         mesh.setMatrixAt(i, m.compose(v.set(t.x, t.y ?? 0, t.z), q, sc.set(s, s * (0.9 + rnd() * 0.2), s)));
         mesh.setColorAt(i, col.setScalar(0.85 + rnd() * 0.3));
       });
-      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.castShadow = shadow; mesh.receiveShadow = true;
       // shadows with the leaf alpha, not as solid cards
       mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leaf.map, alphaTest: 0.5 });
       mesh.computeBoundingSphere();
@@ -167,81 +168,5 @@ export class Forest {
   }
 }
 
-// ---------------------------------------------------------------------------------------------------------
-// Real trees: GLB models grown with EZ-Tree (tools/trees_glb, MIT) — branching trunks with bark, leaf cards with
-// photo textures; two variants per kind. Used for the courtyard on desktop; the card trees above stay as the
-// instant placeholder, the far street trees and the fallback for phones.
-export type RealKind = TreeKind | 'buta';
-export type RealAt = { x: number; z: number; y?: number; s?: number; kind: RealKind };
-type Variant = { bark: THREE.Mesh; leaf: THREE.Mesh };
-const glb = new Map<RealKind, Promise<Variant[] | null>>();
-function loadKind(kind: RealKind) {
-  let p = glb.get(kind);
-  if (!p) {
-    // the preview host serves no .glb files, so the same bytes are also published under a served extension
-    const L = new GLTFLoader();
-    p = L.loadAsync(`trees/${kind}.glb`).catch(() => L.loadAsync(`trees/${kind}.wasm`)).then((g) => {
-      const out: Variant[] = [];
-      for (const v of g.scene.children) {
-        const bark = v.children.find((c) => c.name.endsWith('bark')) as THREE.Mesh, leaf = v.children.find((c) => c.name.endsWith('leaf')) as THREE.Mesh;
-        if (bark && leaf) out.push({ bark, leaf });
-      }
-      return out.length ? out : null;
-    }).catch(() => null);
-    glb.set(kind, p);
-  }
-  return p;
-}
-/** heights the GLBs were exported at (m) relative to the card prototypes, so `s` keeps its meaning */
-const REAL_K: Record<RealKind, number> = { chinor: 0.95, terak: 1, archa: 0.9, mevali: 0.95, buta: 1 };
 /** the app targets desktop computers: the heavy models are always used */
 export const realTreesOk = () => true;
-
-export class RealForest {
-  readonly group = new THREE.Group();
-  /** resolves true when every kind loaded and the meshes are in the group */
-  readonly ready: Promise<boolean>;
-  private mats: THREE.MeshStandardMaterial[] = [];
-  private white = false;
-  constructor(list: RealAt[]) {
-    const kinds = [...new Set(list.map((t) => t.kind))];
-    this.ready = Promise.all(kinds.map(loadKind)).then((vs) => {
-      if (vs.some((v) => !v)) return false;
-      let sd = 5; const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
-      kinds.forEach((kind, ki) => {
-        const V = vs[ki]!, mine = list.filter((t) => t.kind === kind);
-        V.forEach((v, vi) => {
-          const part = mine.filter((_, i) => i % V.length === vi);
-          if (!part.length) return;
-          const barkM = (v.bark.material as THREE.MeshStandardMaterial).clone(), leafM = (v.leaf.material as THREE.MeshStandardMaterial).clone();
-          leafM.alphaTest = 0.45; leafM.side = THREE.DoubleSide;
-          this.mats.push(barkM, leafM);
-          const bark = new THREE.InstancedMesh(v.bark.geometry, barkM, part.length), leaf = new THREE.InstancedMesh(v.leaf.geometry, leafM, part.length);
-          const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
-          part.forEach((t, i) => {
-            const s = (t.s ?? 1) * REAL_K[kind] * (0.85 + rnd() * 0.3);
-            q.setFromAxisAngle(p.set(0, 1, 0), rnd() * Math.PI * 2);
-            m.compose(p.set(t.x, t.y ?? 0, t.z), q, sc.set(s, s * (0.92 + rnd() * 0.16), s));
-            bark.setMatrixAt(i, m); leaf.setMatrixAt(i, m);
-            leaf.setColorAt(i, col.setHSL(0.24 + rnd() * 0.07, 0.25 + rnd() * 0.2, 0.62 + rnd() * 0.2));     // each tree its own green
-          });
-          leaf.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leafM.map, alphaTest: 0.45 });
-          for (const o of [bark, leaf]) { o.castShadow = o.receiveShadow = true; o.raycast = () => {}; o.computeBoundingSphere(); this.group.add(o); }
-        });
-      });
-      this.setWhite(this.white);
-      return true;
-    });
-  }
-  setWhite(white: boolean) {
-    this.white = white;
-    for (const m of this.mats) {
-      const u = m.userData as { tex?: THREE.Texture | null; col?: THREE.Color };
-      if (u.tex === undefined) { u.tex = m.map; u.col = m.color.clone(); }
-      const leaf = m.alphaTest > 0;
-      m.map = white ? null : u.tex ?? null; m.alphaMap = white && leaf ? u.tex ?? null : null;
-      m.color.set(white ? '#f1f0eb' : u.col!);
-      m.needsUpdate = true;
-    }
-  }
-}

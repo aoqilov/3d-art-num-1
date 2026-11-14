@@ -2,8 +2,11 @@
 // Data: public/context/context.json (tools/context.py, from a CADMapper / OpenStreetMap DXF).
 // Heights: estimate in the file  →  public/context/overrides.json  →  this browser's edits (?edit=1), last one wins.
 import * as THREE from 'three';
-import { Forest, RealForest, realTreesOk, type TreeAt } from './trees';
+import { Forest, type TreeAt } from './trees';
+import { GlbForest, type GlbAt } from './glbTrees';
+import { Mask, PointGrid, fillRows, scatter, scatterFree } from './densify';
 import { Lamps } from './lamps';
+import { nodes } from './gpu';
 
 export type Roof = 'pitched' | 'flat';
 export type CtxBuilding = { id: string; p: number[]; f: number; r: Roof; s: 'est' | 'osm'; a: number };
@@ -17,8 +20,9 @@ export const FLOOR_M = 3.0;
 const CURB_H = 0.15;
 const Y_ROAD = 0.03, Y_PATH = 0.04, Y_PARK = 0.025, Y_PAINT = 0.036;
 /** street surfaces (public-pro/pro/tex, tools/road_textures.py); swap here to change the look */
-export const STREET = { road: 'asphalt_new', walk: 'pavers_grey', path: 'pavers_grey' };
-const TILE: Record<string, number> = { asphalt_new: 4, asphalt_old: 8, pavers_grey: 1.2, pavers_red: 1.2, pavers_mix: 1.2, slab30: 1.2, roadpaint: 1 };
+// photo textures (tools/ground/roads.mjs, Poly Haven CC0): worn asphalt, interlocking concrete pavers
+export const STREET = { road: 'ph_asphalt', walk: 'ph_pavers', path: 'ph_pavers' };
+const TILE: Record<string, number> = { ph_asphalt: 3.0, ph_pavers: 1.92, asphalt_new: 4, asphalt_old: 8, pavers_grey: 1.2, pavers_red: 1.2, pavers_mix: 1.2, slab30: 1.2, roadpaint: 1 };
 
 const LS_KEY = 'om-ctx-edits';
 export function loadLocalEdits(): Overrides {
@@ -220,7 +224,13 @@ export class Context {
   private forest: Forest | null = null;
   private layers: Overrides[] = [];
 
-  constructor(readonly data: CtxData, private onChange: () => void) {
+  /** every tree of the neighbourhood (one group, so a view can hide them) */
+  readonly trees = new THREE.Group();
+  /**
+   * opts.keepOut: no tree where it returns true (the open zone around a block on its own page);
+   * opts.lod: beyond r metres of (x, z) the light card trees instead of the GLB models (far trees cost a lot)
+   */
+  constructor(readonly data: CtxData, private onChange: () => void, private opts: { keepOut?: (x: number, z: number) => boolean; lod?: { x: number; z: number; r: number } } = {}) {
     this.winTex = windowTexture();
     this.wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: this.winTex, roughness: 0.92, emissiveMap: litTexture(), emissive: '#ffffff', emissiveIntensity: 0 });
     this.roofMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide });
@@ -246,9 +256,51 @@ export class Context {
       const v = r();
       list.push(v < 0.7 ? { x, z, kind: 'mevali', s: 0.8 + r() * 0.5 } : v < 0.85 ? { x, z, kind: 'chinor', s: 0.6 + r() * 0.3 } : { x, z, kind: 'archa', s: 0.8 + r() * 0.4 });
     }
-    if (!list.length) return;
-    this.forest = new Forest(list);
-    this.group.add(this.forest.group);
+    // greener: the gaps of the street rows filled, the parks planted (densify.ts)
+    const taken = new PointGrid(8);
+    list.forEach((t) => taken.add(t.x, t.z));
+    for (const [x, z, k] of fillRows(d.streetTrees ?? [], taken)) list.push({ x, z, y: CURB_H, kind: k === 0 ? 'terak' : 'chinor', s: k === 0 ? 0.9 : 0.75 + r() * 0.3 });
+    // the yards of the neighbourhood: free ground (not road, sidewalk, path, park, house or the site itself)
+    // within 420 m of the complex, a tree every ~9 m
+    const R = 420, mask = new Mask(-R, -R, 2 * R, 2);
+    for (const t of [d.road, d.walk, d.paths, d.parks]) mask.tris(t);
+    for (const bd of d.buildings) mask.poly(bd.p);
+    mask.poly(d.site);
+    mask.grow(1);
+    for (const [x, z] of scatterFree(mask, 0, 0, R, 9, taken, r, 2200)) {
+      const v = r();
+      list.push(v < 0.5 ? { x, z, kind: 'mevali', s: 0.8 + r() * 0.5 } : v < 0.85 ? { x, z, kind: 'chinor', s: 0.6 + r() * 0.35 } : { x, z, kind: 'archa', s: 0.7 + r() * 0.4 });
+    }
+    for (const [x, z] of scatter(d.parks, 6, taken, r, 2000)) {
+      const v = r();
+      list.push({ x, z, y: Y_PARK, kind: v < 0.55 ? 'chinor' : v < 0.85 ? 'mevali' : 'archa', s: 0.7 + r() * 0.4 });
+    }
+    const keep = this.opts.keepOut;
+    const all = keep ? list.filter((t) => !keep(t.x, t.z)) : list;
+    this.treeSpots = all;
+    if (!all.length) return;
+    this.group.add(this.trees);
+    this.forest = new Forest(all);
+    this.trees.add(this.forest.group);
+    // near: the GLB models; far (lod): card trees
+    const L = this.opts.lod;
+    const inR = (t: TreeAt) => !L || (t.x - L.x) ** 2 + (t.z - L.z) ** 2 < L.r * L.r;
+    const near = all.filter(inR), far = all.filter((t) => !inR(t));
+    const glb = (this.glb = new GlbForest(near, 11));
+    glb.ready.then((ok) => {
+      if (!ok || !this.forest) return;
+      this.trees.remove(this.forest.group);
+      if (far.length) { this.forest = new Forest(far, false); this.forest.setWhite(this.style === 'white'); this.trees.add(this.forest.group); }
+      glb.setWhite(this.style === 'white'); this.trees.add(glb.group);
+    });
+  }
+  glb: GlbForest | null = null;
+  /** where the trees stand (complex frame) */
+  treeSpots: TreeAt[] = [];
+  /** an extra discard mask on the houses and trees (a block's page: the corridor between the camera and the block) */
+  setMask(mask: unknown, shadow: unknown) {
+    for (const m of [this.wallMat, this.roofMat]) { nodes(m).maskNode = mask; nodes(m).maskShadowNode = shadow; m.needsUpdate = true; }
+    this.glb?.setMask(mask, shadow);
   }
 
   private buildStreets() {
@@ -348,7 +400,7 @@ export class Context {
     this.wallMat.color.set(white ? '#f4f3f0' : '#ffffff');
     this.roofMat.color.set(white ? '#e4e3df' : '#ffffff');
     this.wallMat.needsUpdate = this.roofMat.needsUpdate = true;
-    this.forest?.setWhite(white);
+    this.forest?.setWhite(white); this.glb?.setWhite(white);
     for (const m of this.street) {
       const u = m.userData as { fallback: string; map?: THREE.Texture; normalMap?: THREE.Texture };
       if (m.map) { u.map = m.map; u.normalMap = m.normalMap ?? undefined; }
@@ -449,6 +501,8 @@ export class Courtyard {
   private forest: Forest;
 
   /** cut: trees to leave out (they stand on a footpath, see tools/yard.py) */
+  /** the courtyard's trees (one group, so a view can hide them) */
+  readonly trees = new THREE.Group();
   constructor(c: CourtData, site: number[], cut: number[][] = []) {
     this.paving = streetMat(STREET.walk, '#a3a09a');
     this.grassTex = grassTexture();
@@ -471,17 +525,25 @@ export class Courtyard {
     const gone = new Set(cut.map(([x, z]) => `${x},${z}`));
     for (const [x, z, r] of c.trees) if (!gone.has(`${x},${z}`)) list.push(r > 2.3 ? { x, z, y: CURB_H + 0.01, kind: 'chinor', s: Math.min(1, r / 3.6) } : { x, z, y: CURB_H + 0.01, kind: 'mevali', s: Math.max(0.7, r / 2.2) });
     for (const [x, z] of c.young) list.push({ x, z, y: 0.035, kind: rr() < 0.5 ? 'archa' : 'mevali', s: 0.6 + rr() * 0.2 });
+    this.treeSpots = list;
     this.forest = new Forest(list);
-    this.group.add(this.forest.group);
-    // real GLB trees replace the card trees once loaded (desktop only: they are much heavier)
-    if (realTreesOk()) {
-      const real = new RealForest(list);
-      real.ready.then((ok) => { if (!ok) return; this.group.remove(this.forest.group); this.real = real; real.setWhite(this.white); this.group.add(real.group); });
+    this.group.add(this.trees); this.trees.add(this.forest.group);
+    // the GLB trees replace the card trees once loaded; grass tufts at the feet of the bigger ones
+    const glbList: GlbAt[] = [...list];
+    for (const t of list) if (t.kind !== 'archa') for (let k = 0; k < 2; k++) {
+      const a = rr() * 6.283, d = 0.9 + rr() * 0.9;
+      glbList.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, y: t.y, kind: 'ot', s: 0.8 + rr() * 0.5 });
     }
+    const real = (this.glb = new GlbForest(glbList, 7));
+    real.ready.then((ok) => { if (!ok) return; this.trees.remove(this.forest.group); this.real = real; real.setWhite(this.white); this.trees.add(real.group); });
     if (c.lamps?.length) { this.lamps = new Lamps([], c.lamps, CURB_H, 0.035); this.group.add(this.lamps.group); }
   }
   private lamps: Lamps | null = null;
-  private real: RealForest | null = null;
+  private real: GlbForest | null = null;
+  /** the GLB trees (also before they arrive) */
+  glb: GlbForest | null = null;
+  /** where the trees stand (complex frame) */
+  treeSpots: TreeAt[] = [];
   private white = false;
   private night = 0;
   setNight(n: number) { this.night = n; this.lamps?.setNight(this.white ? 0 : n); }

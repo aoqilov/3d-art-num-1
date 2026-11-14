@@ -3,7 +3,8 @@
 // hedges and flower patches on the planted beds, manhole covers. Static: merged by material or instanced.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { RealForest, realTreesOk, type RealAt } from './trees';
+import { GlbForest, type GlbAt } from './glbTrees';
+import { glbInstances, type GlbItem } from './glbInstances';
 
 export type YardData = {
   court: number[] | null;          // cx, cz, deg, w, d
@@ -235,14 +236,14 @@ export class Yard {
       const T = place(cx, cz, deg);
       for (let i = 0; i < 5; i++) { const x = -1.3 + i * 0.65; put(M.steel, bar([x, PAVE_Y, -0.35], [x, 0.8, -0.35], 0.04), T); put(M.steel, bar([x, PAVE_Y, 0.35], [x, 0.8, 0.35], 0.04), T); put(M.steel, bar([x, 0.8, -0.35], [x, 0.8, 0.35], 0.04), T); }
     }
-    // ---- benches with bins
+    // ---- benches with bins: the bench built in Blender (slats, steel frames; tools/yard_glb), the bin drawn here
+    const benches: GlbItem[] = [];
     for (const [x, z, yaw] of d.bench) {
       const T = new THREE.Matrix4().makeTranslation(x, PAVE_Y, z).multiply(new THREE.Matrix4().makeRotationY(yaw));
-      for (let i = 0; i < 4; i++) put(M.wood, bx(-0.9, 0.43, -0.2 + i * 0.12, 0.9, 0.47, -0.1 + i * 0.12), T);
-      for (let i = 0; i < 3; i++) put(M.wood, bx(-0.9, 0.58 + i * 0.13, -0.27, 0.9, 0.68 + i * 0.13, -0.23), T);
-      for (const s of [-0.75, 0.75]) { put(M.dark, bx(s - 0.03, 0, -0.25, s + 0.03, 0.43, 0.25), T); put(M.dark, bx(s - 0.03, 0.43, -0.29, s + 0.03, 0.95, -0.24), T); }
+      benches.push({ m: T.clone() });          // its seat faces +z, like the drawn bench it replaces
       put(M.bin, cyl(0.2, 0.62, 1.35, 0.08, -0.05, 12), T); put(M.dark, cyl(0.03, 0.1, 1.35, 0, -0.05, 6), T);
     }
+    this.group.add(glbInstances('orindiq', benches).group);
     for (const [m, list] of parts) {
       const mesh = new THREE.Mesh(mergeGeometries(list, false), m);
       mesh.castShadow = m !== M.asphalt && m !== M.line; mesh.receiveShadow = true; mesh.raycast = () => {};
@@ -299,13 +300,39 @@ export class Yard {
       });
       hm.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leafT, alphaTest: 0.5 });
       hm.castShadow = hm.receiveShadow = true; hm.raycast = () => {}; this.group.add(hm);
+      // clipped hedge clumps built in Blender (dense foliage, lumpy sides, loose leaves; 1 × 1 × 1 m, base at 0)
+      // replace the card clumps above once loaded
+      // every second point of a row, a clump half as wide again: the same hedge from half the clumps
+      const items: GlbItem[] = d.hedge.filter((_, i) => i % 2 === 0).map(([x, z, r]) => ({
+        m: new THREE.Matrix4().makeTranslation(x, BED_Y - 0.03, z)
+          .multiply(new THREE.Matrix4().makeRotationY(Math.floor(rnd() * 4) * Math.PI / 2 + (rnd() - 0.5) * 0.3))
+          .multiply(new THREE.Matrix4().makeScale(r * 3.0, r * 1.8, r * 3.0)),
+        tint: 0.85 + rnd() * 0.3,
+      }));
+      const hedge = glbInstances('buta_tosiq', items);
+      hedge.ready.then((ok) => { if (!ok) return; this.group.remove(hm); this.group.add(hedge.group); });
     }
-    // ---- real bushes (GLB) beside the flower patches
-    if (realTreesOk() && d.flowers.length) {
-      const list: RealAt[] = [];
-      for (const [x, z, r] of d.flowers) for (let k = 0; k < 2; k++) { const a = rnd() * 6.283; list.push({ x: x + Math.cos(a) * (r + 0.7), z: z + Math.sin(a) * (r + 0.7), y: BED_Y, kind: 'buta', s: 0.8 + rnd() * 0.5 }); }
-      const bushes = new RealForest(list);
-      bushes.ready.then((ok) => { if (ok) this.group.add(bushes.group); });
+    // ---- bushes (Blender: searsia_lucida), flowers (gazania) in the beds, grass tufts around them
+    if (d.flowers.length) {
+      const list: GlbAt[] = [], bush: GlbItem[] = [], flowers: GlbItem[] = [];
+      const turn = new THREE.Matrix4(), sc = new THREE.Matrix4();
+      for (const [x, z, r] of d.flowers) {
+        for (let k = 0; k < 2; k++) {
+          const a = rnd() * 6.283, h = 0.75 + rnd() * 0.5;
+          bush.push({ m: new THREE.Matrix4().makeTranslation(x + Math.cos(a) * (r + 0.8), BED_Y, z + Math.sin(a) * (r + 0.8)).multiply(turn.makeRotationY(rnd() * 6.283)).multiply(sc.makeScale(h, h, h)), tint: 0.9 + rnd() * 0.2 });
+        }
+        for (let k = 0; k < 3; k++) { const a = rnd() * 6.283; list.push({ x: x + Math.cos(a) * (r + 1.3), z: z + Math.sin(a) * (r + 1.3), y: BED_Y, kind: 'ot', s: 0.7 + rnd() * 0.6 }); }
+        // about 2.5 flowering plants per square metre of bed, 1.6–2.4× the model's size
+        const n = Math.round(Math.PI * r * r * 2.5);
+        for (let k = 0; k < n; k++) {
+          const a = rnd() * 6.283, q = Math.sqrt(rnd()) * r * 0.95, h = 1.6 + rnd() * 0.8;
+          flowers.push({ m: new THREE.Matrix4().makeTranslation(x + Math.cos(a) * q, BED_Y + 0.01, z + Math.sin(a) * q).multiply(turn.makeRotationY(rnd() * 6.283)).multiply(sc.makeScale(h, h, h)) });
+        }
+      }
+      const tufts = new GlbForest(list, 3);
+      tufts.ready.then((ok) => { if (ok) this.group.add(tufts.group); });
+      this.group.add(glbInstances('buta', bush).group);
+      this.group.add(glbInstances('gul', flowers, { shadow: false }).group);
     }
     // ---- flower patches
     const fmat = [0, 1, 2, 3].map((s) => new THREE.MeshStandardMaterial({ map: flowerTex(s), alphaTest: 0.5, roughness: 1 }));

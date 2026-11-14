@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import BlockView from './block/BlockView';
+import { DEFAULT_HOUR, STOPS, STOP_NAMES, fmtStop } from './three/timeStops';
 import FullscreenButton from './block/ui/Fullscreen';
 import ModeSwitch from './block/ui/ModeSwitch';
 import { SECTIONS, type Sec } from './block/ui/i18n';
@@ -7,6 +8,7 @@ import { ComplexScene } from './three/ComplexScene';
 import { BLOCKS, FLOORS, TOTAL_APARTMENTS, PRICE_PER_M2, TYPE4 } from './data/blocks';
 import { APARTMENTS, blockStats, type Status } from './data/apartments';
 import EditPanel from './three/EditPanel';
+import RenderStats from './three/RenderStats';
 import { fmtHour } from './three/sun';
 import { PHASES, REPORT_DATE, TODAY_M, T_MONTHS, complexProgress, monthLabel } from './data/progress';
 
@@ -46,12 +48,25 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
   const [ctx, setCtx] = useState(true);
   const [white, setWhite] = useState(false);
   const [court3D, setCourt3D] = useState(true);
-  const [hour, setHour] = useState(15.5);
+  const [hour, setHour] = useState(DEFAULT_HOUR);
   const [ctxN, setCtxN] = useState<number | null | undefined>(undefined);
   const [live, setLive] = useState(() => location.search.includes('live=1'));
   const [mi, setMi] = useState(TODAY_M);
   const [playing, setPlaying] = useState(false);
   const editMode = useMemo(() => new URLSearchParams(location.search).get('edit') === '1', []);
+  const outerMode = useMemo(() => new URLSearchParams(location.search).get('edit') === '2', []);
+  const [outerN, setOuterN] = useState(0);
+  useEffect(() => {
+    if (!outerMode) return;
+    const id = setInterval(() => { if (scene.current) { scene.current.setOuterEdit(setOuterN); clearInterval(id); } }, 200);
+    return () => { clearInterval(id); scene.current?.setOuterEdit(null); };
+  }, [outerMode]);
+  const outerExport = () => {
+    const d = scene.current?.outerExport(); if (!d) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(d) + '\n'], { type: 'application/json' }));
+    a.download = 'outer-picks.json'; a.click(); URL.revokeObjectURL(a.href);
+  };
 
   useEffect(() => {
     const s = new ComplexScene(host.current!, {
@@ -100,15 +115,17 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
 
   return (
     <div className="app">
+      <RenderStats place="top" />
       <div ref={host} className="viewport" />
       <header className="top">
         <div className="brand"><b>OBOD MASKAN<ModeSwitch /></b><span>turar-joy majmuasi · 3D general plan</span></div>
         <span className="demo">DEMO · narx {usd(PRICE_PER_M2)}/m²</span>
         {ctxN ? <label className="tog" title="Hovli: 3D ko‘kalamzorlashtirish yoki general plan rasmi"><input type="checkbox" checked={court3D} onChange={(e) => setCourt3D(e.target.checked)} /> 3D hovli</label> : null}
         {(!ctxN || !court3D) && <label className="tog"><input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} /> General plan</label>}
-        <label className="tog time" title="Kun vaqti (21-iyun, Toshkent): quyosh haqiqiy o‘rnida, kechasi chiroqlar yonadi">
-          <span aria-hidden>☀</span><input type="range" min={5} max={23.5} step={0.25} value={hour} onChange={(e) => setHour(+e.target.value)} /><b>{fmtHour(hour)}</b>
-        </label>
+        <div className="tog time" role="group" aria-label="Kun vaqti" title="Kun vaqti (21-iyun, Toshkent): quyosh haqiqiy o‘rnida, kechasi chiroqlar yonadi">
+          <span aria-hidden>{hour >= 7 && hour <= 19 ? '☀' : '☾'}</span>
+          {STOPS.map((h) => <button key={h} className={h === hour ? 'on' : ''} title={STOP_NAMES[h]} aria-pressed={h === hour} onClick={() => setHour(h)}>{fmtStop(h)}</button>)}
+        </div>
         {ctxN !== null && <label className="tog" title="Atrofdagi uylar, ko‘chalar va trotuarlar (OpenStreetMap)"><input type="checkbox" checked={ctx} onChange={(e) => setCtx(e.target.checked)} /> Atrof</label>}
         {ctxN !== null && ctx && <label className="tog" title="Atrofni oq maket ko‘rinishida ko‘rsatish"><input type="checkbox" checked={white} onChange={(e) => setWhite(e.target.checked)} /> Oq maket</label>}
         <label className="tog live" title="Qurilish jarayoni: har bir blok bugun qaysi bosqichda (namunaviy jadval)"><input type="checkbox" checked={live} onChange={(e) => { setLive(e.target.checked); setSelected(null); }} /> Qurilish holati</label>
@@ -121,6 +138,13 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
         </div>
       )}
 
+      {outerMode && (
+        <div className="outer-edit">
+          <b>edit=2 · tashqi shahar</b>
+          <span>Binoni bosing (Shift — qo'shib tanlash). Tanlangan: <b>{outerN}</b></span>
+          <div><button onClick={outerExport} disabled={!outerN}>JSON yuklab olish</button><button onClick={() => scene.current?.outerClear()} disabled={!outerN}>Tozalash</button></div>
+        </div>
+      )}
       {editMode && ctxN ? <EditPanel scene={scene} /> : (
       <aside className="panel">
         {live && !selected && (
@@ -220,7 +244,7 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
         )}
       </aside>
       )}
-      <p className="osm">Atrof: © OpenStreetMap mualliflari</p>
+      <p className="osm">Atrof: © OpenStreetMap mualliflari · Daraxtlar: 00amza, 99.Miles (Sketchfab, CC BY 4.0)</p>
     </div>
   );
 }

@@ -1,16 +1,16 @@
 # Blender (bpy 4.x/5.x) build of the type-4 block exterior ("Blok-1"):
-#   python3 tools/blender/block1.py            (pip install bpy)   or   blender -b -P tools/blender/block1.py
+#   npm run model  (export → Blender → compress; tools/blender/run.mjs finds Blender)   or   blender -b -P tools/blender/block1.py
 # in : tools/blender/out/block_t4.json   (node tools/blender/export.mjs — triangles per material from the drawings)
 # out: public/models/blok1.glb (+ tools/blender/out/blok1.blend, blok1_ao.png)
-# What Blender adds to the drawn geometry: welded meshes, a second UV set and ambient occlusion baked with Cycles
+# What Blender adds to the drawn geometry: welded meshes, bevelled corners (1.2 cm), a second UV set and ambient occlusion baked with Cycles
 # (soft contact shadows under balconies, canopies, in window reveals and loggias) stored in the GLB as occlusion map.
 import numpy as np
 import bpy, bmesh, json, base64, os, sys, struct, array, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 SIZE = int(os.environ.get('AO_SIZE', 4096)); SAMPLES = int(os.environ.get('AO_SAMPLES', 48))
-NO_BAKE = {'rail', 'glass', 'lattice_dark', 'frame', 'frame_light', 'steel'}      # thin or see-through: no lightmap space
-NO_CAST = {'rail', 'glass', 'lattice_dark'}
+NO_BAKE = {'rail', 'rail_panel', 'glass', 'lattice_dark', 'frame', 'frame_light', 'steel'}      # thin or see-through: no lightmap space
+NO_CAST = {'rail', 'rail_panel', 'glass', 'lattice_dark'}
 
 t0 = time.time()
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -29,6 +29,8 @@ def material(g, baked):
     b.inputs['Base Color'].default_value = hexc(g['color']); b.inputs['Roughness'].default_value = g['rough']; b.inputs['Metallic'].default_value = g['metal']
     if g['name'] == 'glass':
         b.inputs['Alpha'].default_value = 0.9
+    if g['name'] == 'rail_panel':                       # see-through; also keeps the exporter from merging it with 'rail'
+        b.inputs['Alpha'].default_value = 0.5
     if baked:
         uv = nt.nodes.new('ShaderNodeUVMap'); uv.uv_map = 'ao'
         tx = nt.nodes.new('ShaderNodeTexImage'); tx.image = ao_img; tx.name = 'AO'
@@ -64,6 +66,20 @@ trim = make('blok1_trim', [g for g in data if g['name'] in NO_BAKE and g['name']
 thin = make('blok1_thin', [g for g in data if g['name'] in NO_CAST], False)
 print('meshes', [(o.name, len(o.data.polygons)) for o in (shell, trim, thin)], round(time.time() - t0, 1))
 
+# ---- soft edges: a small bevel on every real corner (walls, window reveals, slab edges, pilasters) catches
+# the light the way built corners do; thin and see-through parts stay sharp
+import math
+BEVEL = float(os.environ.get('BEVEL', 0.012))
+def bevel(ob, width):
+    bpy.ops.object.select_all(action='DESELECT'); ob.select_set(True); bpy.context.view_layer.objects.active = ob
+    m = ob.modifiers.new('bevel', 'BEVEL'); m.width = width; m.segments = 2; m.limit_method = 'ANGLE'
+    m.angle_limit = math.radians(35); m.use_clamp_overlap = True; m.loop_slide = True
+    bpy.ops.object.modifier_apply(modifier=m.name)
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(35))
+if BEVEL > 0:
+    bevel(shell, BEVEL)                                  # frames and steel: thin, a bevel there costs triangles for nothing
+    print('bevel', [(o.name, len(o.data.polygons)) for o in (shell, trim)], round(time.time() - t0, 1))
+
 # ---- second UV set for the bake
 bpy.context.view_layer.objects.active = shell; shell.select_set(True)
 ao = shell.data.uv_layers.new(name='ao'); shell.data.uv_layers.active = ao
@@ -88,6 +104,17 @@ print('uv', round(time.time() - t0, 1))
 bpy.ops.mesh.primitive_plane_add(size=400, location=(15, -9, -0.01)); ground = bpy.context.object; ground.name = 'ground'
 thin.hide_render = True
 sc = bpy.context.scene; sc.render.engine = 'CYCLES'; sc.cycles.device = 'CPU'; sc.cycles.samples = SAMPLES
+# the graphics card bakes when Cycles finds one (OptiX / CUDA), the processor otherwise (AO_DEVICE=CPU forces it)
+if os.environ.get('AO_DEVICE', 'GPU') == 'GPU':
+    try:
+        prefs = bpy.context.preferences.addons['cycles'].preferences
+        for kind in ('OPTIX', 'CUDA'):
+            prefs.compute_device_type = kind; prefs.get_devices()
+            if any(d.type == kind for d in prefs.devices):
+                for d in prefs.devices: d.use = d.type == kind
+                sc.cycles.device = 'GPU'; print('bake on', kind); break
+    except Exception as e:
+        print('GPU bake unavailable:', e)
 sc.world = bpy.data.worlds.new('w'); sc.world.light_settings.distance = 4.0
 sc.render.bake.margin = 3; sc.render.bake.use_clear = True
 bpy.ops.object.select_all(action='DESELECT'); shell.select_set(True); bpy.context.view_layer.objects.active = shell

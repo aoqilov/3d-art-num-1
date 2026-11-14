@@ -5,49 +5,31 @@
 //  • lit windows, the parapet LED crown, accent lines on the arch frame, the canopy downlight strip.
 // Everything follows the night factor 0..1.
 import * as THREE from 'three';
+import { diffuseColor, exp, float, materialEmissive, positionWorld, select, uniform, vec3 } from 'three/tsl';
+import { nodes } from '../three/gpu';
+import { TREE_NIGHT } from '../three/glbTrees';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CUT, prep, type MatName } from './materials';
 import { BLOCK_W, FLOOR_H, FLOORS, SLAB, pointInPoly, planFor, type Rect } from './plan';
 import { ROOF_Z } from './facade';
 
-/** Night factor of the facade wash (shared by every facade material's shader). */
-export const FACADE_NIGHT = { value: 0 };
+/** Night factor of the facade wash (shared by every facade material). */
+export const FACADE_NIGHT = uniform(0);
 /** Facade materials and how strongly the ground wash catches them (ornament a little more). */
 const GLOW: Partial<Record<MatName, number>> = {
   facade: 1, facade_mint: 1, facade_white: 1, brick: 1, spandrel: 0.6, slab_edge: 0.8, sill: 1, frame_light: 1,
   lattice_white: 1, pilaster: 1.5, pilaster_tile: 1.5, lattice_gold: 2.2,
 };
-/** Adds the night facade wash to the facade materials (raster: a shader term, no extra lights). */
+/** Adds the night facade wash to the facade materials (an emissive term, no extra lights): ground floods and
+ *  canopy downlights, strongest on the shop fronts and fading out by mid-height. */
 export function facadeGlow(lib: Record<MatName, THREE.Material>) {
+  const ny = positionWorld.y;
+  const g = select(ny.lessThan(FLOOR_H), float(0.3), float(0.035).add(exp(ny.sub(FLOOR_H).div(-14)).mul(0.17)));
   for (const [name, extra] of Object.entries(GLOW) as [MatName, number][]) {
     const m = lib[name] as THREE.MeshStandardMaterial;
     if (!m || m.userData.glow) continue;
     m.userData.glow = true;
-    const prev = m.onBeforeCompile;
-    const hasPrev = Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile');   // prep()'s cut-face shading
-    m.onBeforeCompile = (sh, r) => {
-      if (hasPrev) prev.call(m, sh, r);
-      sh.uniforms.uNightFac = FACADE_NIGHT;
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying float vNightY;')
-        .replace('#include <project_vertex>', `#include <project_vertex>
-          #ifdef USE_INSTANCING
-            vNightY = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y;
-          #else
-            vNightY = (modelMatrix * vec4(transformed, 1.0)).y;
-          #endif`);
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float uNightFac;\nvarying float vNightY;')
-        .replace('#include <opaque_fragment>', `if (uNightFac > 0.001) {
-            float ny = vNightY;
-            // ground floods and canopy downlights: strongest on the shop fronts, fading out by mid-height
-            float g = ny < ${FLOOR_H.toFixed(2)} ? 0.32 : 0.012 + 0.2 * exp(-(ny - ${FLOOR_H.toFixed(2)}) / 7.0);
-            outgoingLight += diffuseColor.rgb * vec3(1.0, 0.78, 0.56) * (g * ${extra.toFixed(2)} * uNightFac);
-          }
-          #include <opaque_fragment>`);
-    };
-    const pk = Object.prototype.hasOwnProperty.call(m, 'customProgramCacheKey') ? m.customProgramCacheKey : null;
-    m.customProgramCacheKey = () => (pk ? pk.call(m) : '') + `|nightwash:${extra}`;
+    nodes(m).emissiveNode = materialEmissive.add(diffuseColor.rgb.mul(vec3(1.0, 0.78, 0.56)).mul(g).mul(FACADE_NIGHT.mul(extra)));
     m.needsUpdate = true;
   }
 }
@@ -129,44 +111,51 @@ export function buildNightLights() {
   strip(ledMat, cx + 3.1, -1.52, BLOCK_W, -1.48, 3.0, 3.06);
   strip(goldMat, cx - 2.4, -1.53, cx + 2.4, -1.5, 3.68, 3.72);
 
-  // up/down wall lights on the piers (see the client's reference photo)
-  const wl = wallLights();
-  group.add(wl.group);
+  // vertical LED lines on the piers from the canopy to the parapet, each washing the wall beside it
+  const ll = ledLines();
+  group.add(ll.group);
+
+  // the portal: warm light in the arch and on the entrance
+  const portal = [new THREE.PointLight('#ffc98a', 0, 16, 2), new THREE.PointLight('#ffc98a', 0, 14, 2)];
+  portal[0].position.set(cx, 2.6, -2.4); portal[1].position.set(cx, 9, -2.6);
+  group.add(...portal);
+
+  // bollards along the pavement: the posts stand by day too (`fixtures`), heads and light pools glow at night
+  const bl = bollards();
+  group.add(bl.glow);
 
   const set = (n: number) => {
     paneMat.opacity = n * 0.92;
-    wl.set(n);
+    ll.set(n); bl.set(n);
     FACADE_NIGHT.value = n;
+    TREE_NIGHT.value = n;
     ledMat.opacity = n;
     goldMat.opacity = n;
+    portal[0].intensity = 60 * n; portal[1].intensity = 45 * n;
     group.visible = n > 0.01;
   };
   set(0);
-  return { group, set, decals: wl.decals };
+  return { group, set, decals: ll.decals, fixtures: bl.posts };
 }
 
-/** Scallop of an up/down wall light: narrow at the fixture, widening and fading up and down the wall. */
-function scallopTexture() {
-  const W = 128, H = 256, d = new Uint8Array(W * H * 4);
-  const QW = 1.1, QH = 2.6;                                      // quad size in metres
+/** Soft light of an LED line on the wall: a bright core and a wider glow across, fading at both ends. */
+function washTexture() {
+  const W = 64, H = 64, d = new Uint8Array(W * H * 4);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    const x = ((i + 0.5) / W - 0.5) * QW, y = ((j + 0.5) / H - 0.5) * QH;
-    const r = Math.abs(y), up = y > 0;
-    const w = 0.035 + 0.38 * Math.pow(r, 0.85);                   // cone half-width
-    const edge = Math.min(1, Math.max(0, (w - Math.abs(x)) / (w * 0.45)));
-    let v = Math.exp(-r / (up ? 0.62 : 0.5)) * (up ? 1 : 0.8) * edge * edge * (3 - 2 * edge);
-    v += 0.9 * Math.exp(-(x * x + y * y) / 0.0035) + 0.1 * Math.exp(-(x * x + y * y) / 0.06);
+    const x = Math.abs((i + 0.5) / W - 0.5) * 2, y = (j + 0.5) / H;          // x: 0 centre … 1 edge; y: 0 bottom … 1 top
+    const across = 0.75 * Math.exp(-x / 0.1) + 0.35 * Math.exp(-x / 0.4);
+    const ends = Math.min(1, y / 0.04) * Math.min(1, (1 - y) / 0.03);
     const k = (j * W + i) * 4;
-    d[k] = d[k + 1] = d[k + 2] = 255; d[k + 3] = Math.round(Math.min(1, v) * 255);
+    d[k] = d[k + 1] = d[k + 2] = 255; d[k + 3] = Math.round(Math.min(1, across * ends * (0.85 + 0.15 * (1 - y))) * 255);
   }
   const t = new THREE.DataTexture(d, W, H);
   t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
   t.needsUpdate = true;
-  return { t, QW, QH };
+  return t;
 }
 
-/** Bronze up/down lights on the solid piers of the outer walls, sparser and dimmer on the upper storeys. */
-function wallLights() {
+/** Vertical LED lines on the solid piers of the outer walls, canopy to parapet, as in the client's night render. */
+function ledLines() {
   const plan = planFor(3), fp = plan.footprint, ring = fp.outer;
   const piers: { x: number; y: number; nx: number; ny: number }[] = [];
   for (let i = 0; i < ring.length; i++) {
@@ -203,53 +192,68 @@ function wallLights() {
     for (const [f0, f1] of free) {
       const w = f1 - f0;
       if (w < 0.5) continue;
-      const n = Math.max(1, Math.floor(w / 3.2));
+      const n = Math.max(1, Math.floor(w / 4.2));
       for (let k = 0; k < n; k++) {
         const sc = f0 + (w * (k + 0.5)) / n;
         const x = ax + tx * sc, y = ay + ty * sc;
         // street facade: the ornamental pilasters and the lattice arch frame have their own accents
-        if (ny < -0.5 && y < 0.6 && (Math.abs(x - 6.42) < 0.75 || Math.abs(x - (BLOCK_W - 6.28)) < 0.75 || (x > 11.4 && x < 18.3))) continue;
+        if (ny < -0.5 && y < 0.6 && x > 11.4 && x < 18.3) continue;   // the portal frame has its own gold lines
         piers.push({ x, y, nx, ny });
       }
     }
   }
-  // which storeys get a light on each pier: every pier on the lower storeys, then every 2nd, then every 4th
-  const top = (k: number) => (k % 4 === 0 ? 12 : k % 2 === 0 ? 8 : 5);
-  const { t, QW, QH } = scallopTexture();
-  const decalParts: THREE.BufferGeometry[] = [], bodyParts: THREE.BufferGeometry[] = [], capParts: THREE.BufferGeometry[] = [];
-  const col = new THREE.Color('#ffcf9a');
-  piers.forEach((p, k) => {
-    for (let st = 2; st <= top(k); st++) {
-      const z = (st - 1) * FLOOR_H + 1.75;
-      const level = Math.max(0.25, 1 - (st - 2) * 0.075);          // dimmer going up
-      const rot = Math.atan2(p.nx, p.ny);                            // local +z → wall normal
-      const M = new THREE.Matrix4().makeRotationY(rot).setPosition(p.x, z, p.y);
-      const q = new THREE.PlaneGeometry(QW, QH); q.translate(0, 0, 0.012); q.applyMatrix4(M);
-      const c = new Float32Array(q.getAttribute('position').count * 3);
-      for (let v = 0; v < c.length; v += 3) { c[v] = col.r * level; c[v + 1] = col.g * level; c[v + 2] = col.b * level; }
-      q.setAttribute('color', new THREE.BufferAttribute(c, 3));
-      decalParts.push(q);
-      const b = new THREE.CylinderGeometry(0.034, 0.034, 0.13, 16); b.translate(0, 0, 0.055); b.applyMatrix4(M); b.deleteAttribute('uv');
-      const arm = new THREE.BoxGeometry(0.03, 0.03, 0.03); arm.translate(0, 0, 0.015); arm.applyMatrix4(M); arm.deleteAttribute('uv');
-      bodyParts.push(b.toNonIndexed(), arm.toNonIndexed());
-      for (const sgn of [1, -1]) {
-        const cap = new THREE.CircleGeometry(0.028, 14); cap.rotateX(sgn > 0 ? -Math.PI / 2 : Math.PI / 2); cap.translate(0, sgn * 0.0655, 0.055); cap.applyMatrix4(M); cap.deleteAttribute('uv');
-        capParts.push(cap.toNonIndexed());
-      }
-    }
-  });
-  const group = new THREE.Group(); group.name = 'wall-lights';
-  const decalMat = new THREE.MeshBasicMaterial({ map: t, vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, clippingPlanes: [CUT], polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const decals = new THREE.Mesh(mergeGeometries(decalParts, false)!, decalMat);
-  decals.name = 'wall-light-scallops'; decals.renderOrder = 3; decals.frustumCulled = false;
-  const bodyMat = prep(new THREE.MeshStandardMaterial({ color: '#4a3b2e', roughness: 0.4, metalness: 0.7 }), false);
-  const body = new THREE.Mesh(mergeGeometries(bodyParts, false)!, bodyMat);
-  const capMat = new THREE.MeshBasicMaterial({ color: '#ffe0b8', transparent: true, opacity: 0, clippingPlanes: [CUT] });
-  capMat.userData.ptEmissive = 40;          // the path tracer lights the wall from the caps themselves
-  const caps = new THREE.Mesh(mergeGeometries(capParts, false)!, capMat);
-  [...decalParts, ...bodyParts, ...capParts].forEach((g) => g.dispose());
-  group.add(body, caps, decals);
-  const set = (n: number) => { decalMat.opacity = n; capMat.opacity = n; decals.visible = caps.visible = n > 0.01; };
+  const Z0 = 3.75, Z1 = ROOF_Z + 1.15, H = Z1 - Z0, QW = 1.7;
+  const washParts: THREE.BufferGeometry[] = [], lineParts: THREE.BufferGeometry[] = [];
+  for (const p of piers) {
+    const M = new THREE.Matrix4().makeRotationY(Math.atan2(p.nx, p.ny)).setPosition(p.x, Z0 + H / 2, p.y);   // local +z → wall normal
+    const q = new THREE.PlaneGeometry(QW, H); q.translate(0, 0, 0.014); q.applyMatrix4(M); washParts.push(q);
+    const l = new THREE.BoxGeometry(0.035, H, 0.03); l.translate(0, 0, 0.02); l.applyMatrix4(M); l.deleteAttribute('uv'); lineParts.push(l.toNonIndexed());
+  }
+  const group = new THREE.Group(); group.name = 'led-lines';
+  const washMat = new THREE.MeshBasicMaterial({ map: washTexture(), color: '#ffc27e', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, clippingPlanes: [CUT], polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const decals = new THREE.Mesh(mergeGeometries(washParts, false)!, washMat);
+  decals.name = 'led-wash'; decals.renderOrder = 3; decals.frustumCulled = false;
+  // brighter than white on purpose: the Ultra renderer's bloom makes the lines glow
+  const lineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.7, 2.05, 1.3), transparent: true, opacity: 0, clippingPlanes: [CUT] });
+  const lines = new THREE.Mesh(mergeGeometries(lineParts, false)!, lineMat);
+  [...washParts, ...lineParts].forEach((g) => g.dispose());
+  group.add(lines, decals);
+  const set = (n: number) => { washMat.opacity = 0.9 * n; lineMat.opacity = n; group.visible = n > 0.01; };
   set(0);
-  return { group, set, decals, count: decalParts.length };
+  return { group, set, decals };
+}
+
+/** Light pool of a bollard on the paving. */
+function poolTexture() {
+  const S = 64, d = new Uint8Array(S * S * 4);
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const r = Math.hypot((i + 0.5) / S - 0.5, (j + 0.5) / S - 0.5) * 2;
+    const k = (j * S + i) * 4;
+    d[k] = d[k + 1] = d[k + 2] = 255; d[k + 3] = Math.round(Math.max(0, 1 - r) ** 1.6 * 255);
+  }
+  const t = new THREE.DataTexture(d, S, S); t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true;
+  return t;
+}
+
+/** Low bollard lights along the pavement in front of the block and along its ends. */
+function bollards() {
+  const cx = BLOCK_W / 2, D = planFor(3).footprint.outer.reduce((m, [, y]) => Math.max(m, y), 0);
+  const at: [number, number][] = [];
+  for (let x = -5; x <= BLOCK_W + 5; x += 3.6) if (Math.abs(x - cx) > 3.2) at.push([x, -4.3]);
+  for (let y = 0.5; y <= D; y += 4.5) at.push([-4.3, y], [BLOCK_W + 4.3, y]);
+  const postParts: THREE.BufferGeometry[] = [], headParts: THREE.BufferGeometry[] = [], poolParts: THREE.BufferGeometry[] = [];
+  for (const [x, y] of at) {
+    postParts.push(new THREE.CylinderGeometry(0.055, 0.065, 0.78, 10).translate(x, 0.39, y));
+    headParts.push(new THREE.CylinderGeometry(0.068, 0.068, 0.1, 10).translate(x, 0.73, y));
+    poolParts.push(new THREE.PlaneGeometry(3.2, 3.2).rotateX(-Math.PI / 2).translate(x, 0.035, y));
+  }
+  const posts = new THREE.Mesh(mergeGeometries(postParts, false)!, prep(new THREE.MeshStandardMaterial({ color: '#2f2a26', roughness: 0.45, metalness: 0.6 }), false));
+  posts.name = 'bollards'; posts.castShadow = true;
+  const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 2.0, 1.5), transparent: true, opacity: 0 });
+  const poolMat = new THREE.MeshBasicMaterial({ map: poolTexture(), color: '#ffc98a', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const glow = new THREE.Group(); glow.name = 'bollard-glow';
+  glow.add(new THREE.Mesh(mergeGeometries(headParts, false)!, headMat), new THREE.Mesh(mergeGeometries(poolParts, false)!, poolMat));
+  [...postParts, ...headParts, ...poolParts].forEach((g) => g.dispose());
+  const set = (n: number) => { headMat.opacity = n; poolMat.opacity = 0.55 * n; glow.visible = n > 0.01; };
+  return { posts, glow, set };
 }

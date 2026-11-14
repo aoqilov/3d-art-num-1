@@ -1,11 +1,13 @@
 // Shared material library for the type-4 block. Colours sampled from the architect's render.
 import * as THREE from 'three';
+import { attribute, frontFacing, output, select, texture, uv, vec2, vec4 } from 'three/tsl';
+import { nodes } from '../three/gpu';
 import { brickTex, latticeTex, plasterTex, roofTex, screenTex, signAtlas, tileTex, woodTex } from './textures';
 
 export type MatName =
   | 'facade' | 'facade_mint' | 'facade_white' | 'brick' | 'paint' | 'paint_public' | 'tile_wall' | 'jamb' | 'cap'
   | 'ceiling' | 'floor_base' | 'floor_wood' | 'floor_tile' | 'floor_deck' | 'floor_stone' | 'floor_shop'
-  | 'glass' | 'frame' | 'frame_light' | 'spandrel' | 'slab_edge' | 'rail' | 'steel' | 'roof' | 'pilaster' | 'pilaster_tile'
+  | 'glass' | 'frame' | 'frame_light' | 'spandrel' | 'slab_edge' | 'rail' | 'rail_panel' | 'steel' | 'roof' | 'pilaster' | 'pilaster_tile'
   | 'lattice_white' | 'lattice_dark' | 'lattice_gold' | 'canopy' | 'sill' | 'door_wood' | 'door_entry' | 'stair'
   | 'granite' | 'sign';
 
@@ -23,52 +25,53 @@ let lib: Record<MatName, THREE.Material> | null = null;
 
 /** Shared horizontal section plane: keeps geometry below `constant` (storey cutaway). */
 export const CUT = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e4);
-const CAPC = '0.184,0.192,0.208';
+/** colour of the cut (back) faces, like a plan section */
+const CAPC = new THREE.Color().setRGB(0.184, 0.192, 0.208, THREE.SRGBColorSpace);
 /** Make a material respect the cutaway and paint cut (back) faces like a plan section. */
 export function prep<T extends THREE.Material>(m: T, cap = true): T {
   if (m.userData.prepped) return m;
   m.userData.prepped = true;
-  m.clippingPlanes = [CUT];
-  m.clipShadows = true;
+  m.clippingPlanes = [CUT];          // becomes a mask node in the renderer (three/gpu.ts), shadows included
   if (cap) {
     m.side = THREE.DoubleSide;
-    chain(m, 'cap', (sh) => {
-      sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>',
-        `#include <dithering_fragment>\n if(!gl_FrontFacing){ gl_FragColor = vec4(${CAPC},1.0); }`);
-    });
+    nodes(m).outputNode = select(frontFacing, output, vec4(CAPC.r, CAPC.g, CAPC.b, 1));
+    m.needsUpdate = true;
   }
   return m;
 }
 
-/** Adds a shader patch on top of whatever patches the material already has (order-independent). */
-export function chain(m: THREE.Material, key: string, fn: (sh: THREE.WebGLProgramParametersWithUniforms) => void) {
-  const own = (k: string) => Object.prototype.hasOwnProperty.call(m, k);
-  const prev = own('onBeforeCompile') ? m.onBeforeCompile : null;
-  const prevKey = own('customProgramCacheKey') ? m.customProgramCacheKey : null;
-  m.onBeforeCompile = (sh, r) => { prev?.call(m, sh, r); fn(sh); };
-  m.customProgramCacheKey = () => (prevKey ? prevKey.call(m) : '') + '|' + key;
-  m.needsUpdate = true;
-}
-
 /** Ambient occlusion baked in Blender (tools/blender/block1.py): one map on the geometry's `uvb` set.
- *  White until the model arrives; geometry without `uvb` reads the map's white corner texel. */
+ *  White until the model arrives; enableBakedAO() switches the facade materials over to it. */
 const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 white.needsUpdate = true;
-export const BAKE_AO: { value: THREE.Texture } = { value: white };
-function baked<T extends THREE.Material>(m: T): T {
-  chain(m, 'bake', (sh) => {
-    sh.uniforms.uBakeAO = BAKE_AO;
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec2 uvb;\nvarying vec2 vUvB;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n vUvB = uvb;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D uBakeAO;\nvarying vec2 vUvB;')
-      .replace('#include <aomap_fragment>', `#include <aomap_fragment>
-        float bakeAO = texture2D(uBakeAO, vUvB).g;
-        reflectedLight.indirectDiffuse *= bakeAO;
-        reflectedLight.indirectSpecular *= bakeAO;
-        reflectedLight.directDiffuse *= mix(1.0, bakeAO, 0.35);`);
-  });
+export const BAKE_AO = texture(white);
+const bakeable: THREE.Material[] = [];
+function baked<T extends THREE.Material>(m: T): T { bakeable.push(m); return m; }
+/** only for geometry that carries the `uvb` set (the Blender model) */
+/** true for the materials that take the baked occlusion (the Blender model's opaque surfaces) */
+export const isBaked = (m: THREE.Material) => bakeable.includes(m);
+export function enableBakedAO() {
+  for (const m of bakeable) { nodes(m).aoNode = BAKE_AO.sample(attribute('uvb', 'vec2')).g; m.needsUpdate = true; }
+}
+
+/** Balusters of a balcony railing (1.6 cm bars every 11 cm) painted on a see-through panel. As geometry they
+ *  were thinner than a pixel a few metres away and shimmered as the camera moved; as a mipmapped texture they fade
+ *  into a light veil with distance and stay crisp up close. Panel UVs are metres along the rail × height. */
+function balusterTex() {
+  const W = 64, H = 4, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  const bar = (W * 0.016) / 0.11;
+  g.fillStyle = '#ffffff'; g.fillRect((W - bar) / 2, 0, bar, H);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 0.11, 1); t.anisotropy = 8;
+  t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  return t;
+}
+function railPanel() {
+  const map = balusterTex();
+  const m = new THREE.MeshStandardMaterial({ color: '#2d3038', alphaMap: map, transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.5 });
+  // shadows only where a bar is (the faint far-away veil casts none)
+  nodes(m).maskShadowNode = texture(map, uv().mul(vec2(map.repeat.x, map.repeat.y))).g.greaterThan(0.5);
   return m;
 }
 
@@ -118,6 +121,7 @@ export function materials(): Record<MatName, THREE.Material> {
     spandrel: std({ color: COLORS.spandrel, roughness: 0.55, metalness: 0.15 }),
     slab_edge: std({ color: '#5d6270', roughness: 0.6 }),
     rail: std({ color: '#2d3038', roughness: 0.45, metalness: 0.5 }),
+    rail_panel: railPanel(),
     steel: std({ color: '#b9bcc0', roughness: 0.3, metalness: 0.8 }),
     roof: std({ color: '#ffffff', map: roof, roughness: 1 }),
     pilaster: std({ color: '#ffffff', map: latP, roughness: 0.85 }),

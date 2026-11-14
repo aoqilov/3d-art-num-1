@@ -2,69 +2,77 @@
 // onto a flat cloud layer), lit from the sun's side, warm at dusk, dark at night, thinning into the horizon
 // haze and drifting slowly with the wind. One shader for the complex and the block scenes.
 import * as THREE from 'three';
+import { MeshBasicNodeMaterial } from 'three/webgpu';
+import * as TSL from 'three/tsl';
 
-const VERT = /* glsl */ `
-varying vec3 vDir;
-void main() {
-  vDir = position;
-  vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * position, 1.0);   // follows the camera: rotation only
-  gl_Position = p.xyww;                                                  // at the far plane
-}`;
-const FRAG = /* glsl */ `
-uniform float uTime, uDay, uDusk, uNight, uCover;
-uniform vec3 uSun;
-varying vec3 vDir;
-float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-}
-float fbm(vec2 p) {
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 5; i++) { s += a * noise(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; }
+// node graph written loosely typed: the TSL typings get in the way of plain shader maths
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const T = TSL as any;
+const { Fn, Loop, Discard, vec2, vec3, vec4, float, fract, floor, dot, mix, smoothstep, clamp, max, pow, normalize, varying,
+  positionLocal, cameraProjectionMatrix, cameraViewMatrix, mat3 } = T;
+
+const hash = Fn(([q]: any[]) => {
+  const p = vec2(q).toVar();
+  p.assign(fract(p.mul(vec2(123.34, 456.21))));
+  p.addAssign(dot(p, p.add(45.32)));
+  return fract(p.x.mul(p.y));
+});
+const noise = Fn(([p]: any[]) => {
+  const i = floor(p), f = fract(p);
+  const u = f.mul(f).mul(float(3).sub(f.mul(2)));
+  return mix(mix(hash(i), hash(i.add(vec2(1, 0))), u.x), mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), u.x), u.y);
+});
+const fbm = Fn(([q]: any[]) => {
+  const p = vec2(q).toVar(), a = float(0.5).toVar(), s = float(0).toVar();
+  Loop(5, () => { s.addAssign(a.mul(noise(p))); p.assign(p.mul(2.03).add(vec2(17.1, 9.2))); a.mulAssign(0.5); });
   return s;
-}
-float density(vec2 uv) {
-  float big = fbm(uv * 0.35 + 3.7);                       // where the cloud fields are
-  float d = fbm(uv) * 0.75 + big * 0.45;
-  return smoothstep(uCover, uCover + 0.17, d);
-}
-void main() {
-  vec3 d = normalize(vDir);
-  if (d.y < 0.01) discard;
-  vec2 uv = d.xz / (d.y + 0.22) * 1.5 + vec2(uTime * 0.006, uTime * 0.0025);
-  float c = density(uv);
-  if (c < 0.004) discard;
-  // light: thinner towards the sun = brighter edge, thick away from it = grey belly
-  vec2 ls = normalize(uSun.xz + 1e-4) * 0.16;
-  float c2 = density(uv + ls);
-  float lit = clamp(0.8 + (c - c2) * 1.6 - c * c * 0.42, 0.0, 1.0);
-  float toSun = max(0.0, dot(d, normalize(uSun)));
-  vec3 day = mix(vec3(0.42, 0.48, 0.6), vec3(1.0), lit);
-  vec3 dusk = mix(vec3(0.34, 0.33, 0.44), vec3(1.0, 0.66, 0.42), lit * (0.45 + 0.55 * pow(toSun, 2.0)));
-  vec3 night = mix(vec3(0.016, 0.02, 0.036), vec3(0.05, 0.06, 0.09), lit);
-  vec3 col = mix(day, dusk, uDusk);
-  col = mix(col * (0.25 + 0.75 * uDay), night, uNight);
-  col += vec3(1.0, 0.9, 0.75) * pow(toSun, 24.0) * 0.25 * uDay * (1.0 - c * 0.6);     // silver lining near the sun
-  float a = c * smoothstep(0.012, 0.1, d.y) * (0.94 - 0.3 * uNight);
-  gl_FragColor = vec4(col, a);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}`;
+});
 
 export class CloudDome {
   readonly mesh: THREE.Mesh;
   private u = {
-    uTime: { value: 140 }, uDay: { value: 1 }, uDusk: { value: 0 }, uNight: { value: 0 },
-    uCover: { value: 0.5 }, uSun: { value: new THREE.Vector3(0.3, 0.8, 0.5) },
+    uTime: T.uniform(140), uDay: T.uniform(1), uDusk: T.uniform(0), uNight: T.uniform(0),
+    uCover: T.uniform(0.5), uSun: T.uniform(new THREE.Vector3(0.3, 0.8, 0.5)),
   };
   private last = performance.now();
   constructor() {
-    const mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: this.u, side: THREE.BackSide, transparent: true, depthWrite: false, fog: false });
+    const mat = this.material();
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), mat);
     this.mesh.frustumCulled = false; this.mesh.renderOrder = -1000;
     this.mesh.raycast = () => {};
     this.mesh.onBeforeRender = () => { const now = performance.now(); this.u.uTime.value += Math.min(0.2, (now - this.last) / 1000); this.last = now; };
+  }
+  private material() {
+    const { uTime, uDay, uDusk, uNight, uCover, uSun } = this.u;
+    const mat = new MeshBasicNodeMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, fog: false });
+    // follows the camera (rotation only) and sits at the far plane
+    mat.vertexNode = cameraProjectionMatrix.mul(vec4(mat3(cameraViewMatrix).mul(positionLocal), 1)).xyww;
+    const vDir = varying(positionLocal);
+    const density = Fn(([uv]: any[]) => {
+      const big = fbm(uv.mul(0.35).add(3.7));                 // where the cloud fields are
+      const d = fbm(uv).mul(0.75).add(big.mul(0.45));
+      return smoothstep(uCover, uCover.add(0.17), d);
+    });
+    mat.colorNode = Fn(() => {
+      const d = normalize(vDir);
+      Discard(d.y.lessThan(0.01));
+      const uv = d.xz.div(d.y.add(0.22)).mul(1.5).add(vec2(uTime.mul(0.006), uTime.mul(0.0025)));
+      const c = density(uv);
+      Discard(c.lessThan(0.004));
+      // light: thinner towards the sun = brighter edge, thick away from it = grey belly
+      const ls = normalize(uSun.xz.add(1e-4)).mul(0.16);
+      const c2 = density(uv.add(ls));
+      const lit = clamp(float(0.8).add(c.sub(c2).mul(1.6)).sub(c.mul(c).mul(0.42)), 0, 1);
+      const toSun = max(0, dot(d, normalize(uSun)));
+      const day = mix(vec3(0.42, 0.48, 0.6), vec3(1), lit);
+      const dusk = mix(vec3(0.34, 0.33, 0.44), vec3(1.0, 0.66, 0.42), lit.mul(float(0.45).add(pow(toSun, 2).mul(0.55))));
+      const night = mix(vec3(0.016, 0.02, 0.036), vec3(0.05, 0.06, 0.09), lit);
+      const col = mix(mix(day, dusk, uDusk).mul(float(0.25).add(uDay.mul(0.75))), night, uNight)
+        .add(vec3(1.0, 0.9, 0.75).mul(pow(toSun, 24).mul(0.25).mul(uDay).mul(float(1).sub(c.mul(0.6)))));   // silver lining
+      const a = c.mul(smoothstep(0.012, 0.1, d.y)).mul(float(0.94).sub(uNight.mul(0.3)));
+      return vec4(col, a);
+    })();
+    return mat;
   }
   /** sun direction and the daylight factors of sun.ts */
   setSun(dir: THREE.Vector3, k: { dayK: number; dusk: number; nightF: number }) {

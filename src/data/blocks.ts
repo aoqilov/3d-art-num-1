@@ -29,6 +29,15 @@ export const BLOCKS: BlockDef[] = [
 export const FLOORS = 16;
 /** Blocks built on the type-4 design (site plan p.3 of the Block-1 PDF). */
 export const TYPE4 = [1, 2, 12, 13, 15, 16, 18];
+/** The owner's wish (2026-11): every block of the complex is drawn with the type-4 model of block 1; the 13 blocks
+ *  of other designs get it fitted to their footprints. Data (flats, prices, block pages) still follows TYPE4. */
+export const T4_LOOK = (_id: number) => true;
+/** Scale of the type-4 model (W × D metres) on a block's footprint, along its long and short side; the real
+ *  type-4 blocks keep their 1:1 model. */
+export function t4Fit(def: BlockDef, W: number, D: number): [number, number] {
+  if (TYPE4.includes(def.id)) return [1, 1];
+  return [Math.min(1, Math.max(def.w, def.d) / W), Math.min(1, Math.min(def.w, def.d) / D)];
+}
 export const GROUND_H = 4.2; // 1-qavat (savdo)
 export const FLOOR_H = 3.0;
 export const TOTAL_APARTMENTS = 1735;

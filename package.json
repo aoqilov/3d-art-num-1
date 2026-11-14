@@ -6,19 +6,28 @@
     "dev": "node build.mjs light && node tools/serve.mjs dist 5173",
     "serve": "node tools/serve.mjs dist 5173",
     "typecheck": "tsc --noEmit -p .",
-    "model": "node tools/blender/export.mjs && python3 tools/blender/block1.py"
+    "model": "node tools/blender/run.mjs",
+    "yard": "node tools/yard_glb/run.mjs",
+    "outer": "node tools/outer/merge.mjs maps-out"
   },
   "dependencies": {
+    "@takram/three-atmosphere": "^0.19.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "^0.187.0"
   },
   "devDependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.187.0",
     "esbuild": "^0.28.2",
+    "meshoptimizer": "^1.3.0",
+    "playwright-core": "^1.65.1",
+    "sharp": "^0.35.5",
     "typescript": "^7.0.2"
   },
   "private": true

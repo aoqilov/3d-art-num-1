@@ -1,17 +1,27 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { BLOCKS, FLOORS, FLOOR_H, GROUND_H, PLAN_SIZE, TYPE4, blockTheta, type BlockDef } from '../data/blocks';
+import { BLOCKS, FLOORS, FLOOR_H, GROUND_H, PLAN_SIZE, T4_LOOK, blockTheta, t4Fit, type BlockDef } from '../data/blocks';
 import { mergedBlock } from '../block/blockMerge';
 import { loadBlockGlb } from './blockGlb';
-/** Blender model of the type-4 block (public/models/blok1.glb). Off while the exterior is still being worked on:
- *  the drawn geometry shows every change at once; turn on after re-running tools/blender (export.mjs, block1.py). */
-const BLOCK_GLB = false;
+/** Blender model of the type-4 block (public/models/blok1.glb: bevelled corners, baked contact shadows), used for
+ *  all 20 blocks. After a change to the exterior in the drawings: npm run model (~1 min), else the model lags behind. */
+const BLOCK_GLB = !location.search.includes('noglb');      // ?noglb: the drawn geometry (before / after comparisons)
 import { realTreesOk } from './trees';
 import { PRO, type ProRenderer } from '../block/BlockScene';
 import { skyTexture } from '../pro/sky';
 import { SUN_DAY, daylight, sunDir } from './sun';
 import { FACADE_NIGHT, facadeGlow } from '../block/nightLights';
-import { BAKE_AO, materials } from '../block/materials';
+import { BAKE_AO, enableBakedAO, materials } from '../block/materials';
+import { createRenderer, orbitDamping, type Renderer } from './gpu';
+import { DEFAULT_HOUR, HourGlide } from './timeStops';
+import { CSMShadowNode } from 'three/examples/jsm/csm/CSMShadowNode.js';
+import { ClusteredLighting } from 'three/examples/jsm/lighting/ClusteredLighting.js';
+import { LAMP_LIGHTS } from './lamps';
+import { layoutCourtyard } from './courtLayout';
+import { groundMaterial } from './ground';
+import { OuterCity, loadOuter } from './outer';
+import { renderStats } from './stats';
+import { LAMP_COUNT } from './lamps';
 import { BLOCK_D, BLOCK_W } from '../block/plan';
 import { ProgressView } from './progressView';
 import { CloudDome } from './clouds';
@@ -126,7 +136,9 @@ function labelSprite(n: number) {
 }
 
 export class ComplexScene {
-  private renderer: THREE.WebGLRenderer;
+  private renderer: Renderer;
+  /** the WebGPU backend initialises asynchronously; nothing is drawn before */
+  private ready = false;
   private scene = new THREE.Scene();
   /** block numbers: drawn on top after the main pass (kept out of AO / bloom / tone mapping) */
   private overlay = new THREE.Scene();
@@ -166,14 +178,19 @@ export class ComplexScene {
   private planFull!: THREE.BufferGeometry;
   private planSite: THREE.BufferGeometry | null = null;
   private base!: THREE.Mesh;
+  private ground!: ReturnType<typeof groundMaterial>;
+  // the city beyond the neighbourhood (grey boxes, outer.ts) and ?edit=2 marking of its buildings
+  private outer: OuterCity | null = null;
+  private outerData: Awaited<ReturnType<typeof loadOuter>> = null;
+  private outerEdit: ((n: number) => void) | null = null;
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   // time of day: real sun over Tashkent, physical sky as background and image-based light
-  private hour = 15.5;
+  private hour = DEFAULT_HOUR;
+  /** the hour glides between the time stops (timeStops.ts) */
+  private glide = new HourGlide(DEFAULT_HOUR);
   private pro: ProRenderer | null = null;
-  private pmrem!: THREE.PMREMGenerator;
   private skyTex: THREE.DataTexture | null = null;
-  private envRT: THREE.WebGLRenderTarget | null = null;
   private nightF = 0;
   private nightMats: THREE.MeshStandardMaterial[] = [];
   private glowMats: [THREE.MeshStandardMaterial, number][] = [];
@@ -186,18 +203,20 @@ export class ComplexScene {
   private boxStart: { x: number; y: number } | null = null;
 
   constructor(private el: HTMLElement, private cb: SceneCallbacks) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = createRenderer({ antialias: !PRO.create });   // Ultra: TRAA instead of MSAA
+    // Ultra: every street and path lamp is a real light; clustered (Forward+) lighting keeps ~600 of them cheap
+    LAMP_LIGHTS.real = !!PRO.create;
+    if (PRO.create) (this.renderer as unknown as { lighting: unknown }).lighting = new ClusteredLighting(1024);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.localClippingEnabled = true;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     el.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color('#cfdde6');
     this.scene.fog = new THREE.Fog('#cfdde6', 380, 900);
 
-    this.camera = new THREE.PerspectiveCamera(42, 1, 1, 2000);
+    this.camera = new THREE.PerspectiveCamera(42, 1, 1, 6000);     // the outer city reaches ~1.8 km
     this.camera.position.set(190, 170, 230);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -213,16 +232,23 @@ export class ComplexScene {
     BLOCKS.forEach((b) => this.addBlock(b));
     this.addType4();
     this.initContext();
-    this.pmrem = new THREE.PMREMGenerator(this.renderer);
     if (PRO.create) {
       // PRO build: HDR sky, PBR textures, AO, bloom
       this.pro = PRO.create({
         renderer: this.renderer, scene: this.scene, camera: this.camera, sun: this.sun, hemi: this.hemi,
-        isCut: () => true, redraw: () => {}, emit: () => {},
+        isCut: () => true, redraw: () => {}, emit: () => {}, overlay: this.overlay, clouds: this.clouds,
         hidden: () => [this.floorBand].filter(Boolean) as THREE.Object3D[],
       });
+      // Ultra: cascaded shadows — sharp near the camera, still covering the whole district far away
+      if (!location.search.includes('nocsm')) {        // ?nocsm: one plain shadow map (comparison, debugging)
+        this.sun.shadow.mapSize.set(2048, 2048);
+        const csm = new CSMShadowNode(this.sun, { cascades: 4, maxFar: 900, mode: 'practical', lightMargin: 300 });
+        csm.fade = true;
+        (this.sun.shadow as unknown as { shadowNode: unknown }).shadowNode = csm;
+      }
     }
-    this.setHour(this.hour);
+    this.applyHour(this.hour);
+    void this.renderer.init().then(() => (this.ready = true));
 
     this.floorBand = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
@@ -248,7 +274,9 @@ export class ComplexScene {
     this.scene.add(this.clouds.mesh);
     this.hemi = new THREE.HemisphereLight('#ffffff', '#7d8b78', 1.0);
     this.scene.add(this.hemi);
+    // Ultra: the atmosphere's sun (colour and strength from the air it crosses); otherwise a plain light
     const sun = (this.sun = new THREE.DirectionalLight('#fff3de', 2.2));
+    sun.color.set('#fff3de'); sun.intensity = 2.2;
     sun.position.set(-120, 220, 140);
     sun.castShadow = true;
     sun.shadow.mapSize.set(4096, 4096);
@@ -256,20 +284,19 @@ export class ComplexScene {
     Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 10, far: 700 });
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.6;
-    this.scene.add(sun);
+    this.scene.add(sun, sun.target);   // the target in the scene: its world matrix follows (shadows, the atmosphere sun)
   }
 
   private addGround() {
-    const base = (this.base = new THREE.Mesh(
-      new THREE.PlaneGeometry(2400, 2400),
-      new THREE.MeshStandardMaterial({ color: '#a9b59a', roughness: 1 }),
-    ));
+    // the free land between the streets and houses: earth and grass photo textures (ground.ts)
+    this.ground = groundMaterial();
+    const base = (this.base = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), this.ground.material));
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.05;
     base.receiveShadow = true;
     this.scene.add(base);
 
-    const tex = new THREE.TextureLoader().load('plan.jpg', () => this.renderer.render(this.scene, this.camera));
+    const tex = new THREE.TextureLoader().load('plan.jpg');
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 8;
     this.planFull = new THREE.PlaneGeometry(PLAN_SIZE.w, PLAN_SIZE.d);
@@ -290,7 +317,7 @@ export class ComplexScene {
     group.rotation.y = def.rot;
 
     const { w, d } = def;
-    const real = !TYPE4.includes(def.id);
+    const real = !T4_LOOK(def.id);
     const sideTex = real ? glassTexture(pal) : facadeTexture(pal);
     const endTex = sideTex.clone(); endTex.needsUpdate = true;
     sideTex.repeat.set(Math.max(1, Math.round(w / 3.2)) / FB, TOWER_FLOORS / FB);
@@ -343,7 +370,7 @@ export class ComplexScene {
     edges.position.y = (TOP_Y + 1.6) / 2;
     edges.visible = false;
 
-    if (TYPE4.includes(def.id)) {
+    if (T4_LOOK(def.id)) {
       // real type-4 model is drawn by one InstancedMesh; keep the boxes as invisible pick/clip proxies
       for (const m of [...towerMats, ...podMat, cap.material as THREE.Material]) m.visible = false;
       tower.castShadow = podium.castShadow = cap.castShadow = false;
@@ -376,6 +403,12 @@ export class ComplexScene {
   private addType4() {
     if (!this.type4.length) return;
     const mb = mergedBlock(true);
+    if (BLOCK_GLB) {
+      // the materials get the baked-occlusion input now, so the model's arrival swaps geometry only (no second
+      // shader compile); the drawn placeholder reads the map's white corner through an empty second UV set
+      mb.geometry.setAttribute('uvb', new THREE.BufferAttribute(new Float32Array(mb.geometry.getAttribute('position').count * 2), 2));
+      enableBakedAO();
+    }
     // facade wash at night (shared facade materials) and, for this view only, warm glazing after dark
     const lib = materials();
     facadeGlow(lib);
@@ -389,7 +422,8 @@ export class ComplexScene {
     this.type4.forEach((def, i) => {
       // long axis of the real block (29.7 m) along the footprint's long side; street facade faces outward
       r.makeRotationY(blockTheta(def));
-      m.makeTranslation(def.x, 0, def.z).multiply(r).multiply(c);
+      const [sx, sz] = t4Fit(def, BLOCK_W, BLOCK_D);      // blocks of other designs: the model fitted to the footprint
+      m.makeTranslation(def.x, 0, def.z).multiply(r).multiply(new THREE.Matrix4().makeScale(sx, 1, sz)).multiply(c);
       inst.setMatrixAt(i, m);
       this.instMats.push(m.clone());
     });
@@ -410,10 +444,16 @@ export class ComplexScene {
   }
 
   // ---------- public API ----------
-  /** Local time 5:00–23:30 on 21 June: sun from the real solar position, sky, ambient light, warm low sun. */
-  setHour(h: number) {
+  /** Time of day (one of the stops of timeStops.ts): glides there over ~1.5 s; instant = jump. */
+  setHour(h: number, instant = false) {
+    this.glide.set(h, instant);
+    if (instant) this.applyHour(h);
+  }
+  /** Local time on 21 June: sun from the real solar position, sky, ambient light, warm low sun.
+   *  moving: while gliding the light build draws its sky at a lower resolution (it is computed on the CPU). */
+  private applyHour(h: number, moving = false) {
     this.hour = h;
-    const dir = sunDir(SUN_DAY, h), { el, nightF, dusk, dayK } = daylight(dir);
+    const dir = sunDir(SUN_DAY, ((h % 24) + 24) % 24), { el, nightF, dusk, dayK } = daylight(dir);
     this.sun.position.copy(dir).multiplyScalar(420);
     const low = THREE.MathUtils.clamp(el / 25, 0, 1);
     this.sun.intensity = 3.1 * dayK * (0.35 + 0.65 * low);
@@ -422,12 +462,11 @@ export class ComplexScene {
     this.hemi.color.set('#dfe9f5').lerp(new THREE.Color('#3d4a70'), nightF);
     this.nightF = nightF; this.applyNight();
     this.clouds.setSun(dir, { dayK, dusk, nightF });
-    if (this.pro) { this.pro.hour({ sunDir: dir, nightF, dusk, dayK }); return; }
-    const sky = skyTexture(512, 256, { sun: dir, night: nightF, gain: 0.55 });
+    if (this.pro) { this.pro.hour({ sunDir: dir, nightF, dusk, dayK, hour: h }); return; }
+    const sky = moving ? skyTexture(128, 64, { sun: dir, night: nightF, gain: 0.55 }) : skyTexture(512, 256, { sun: dir, night: nightF, gain: 0.55 });
     this.skyTex?.dispose(); this.skyTex = sky.texture;
-    this.envRT?.dispose(); this.envRT = this.pmrem.fromEquirectangular(sky.texture);
     this.scene.background = sky.texture;
-    this.scene.environment = this.envRT.texture;
+    this.scene.environment = sky.texture;                  // the renderer prefilters it (PMREM) by itself
     this.scene.environmentIntensity = 0.1 + 0.42 * dayK + 0.12 * nightF;
     const hz = sky.horizon;
     (this.scene.fog as THREE.Fog).color.setRGB(Math.min(1, hz[0]), Math.min(1, hz[1]), Math.min(1, hz[2]), THREE.LinearSRGBColorSpace);
@@ -467,37 +506,37 @@ export class ComplexScene {
     this.setContextVisible(this.ctxVisible);
     const court = await loadCourtyard();
     const yd = court ? await loadYard() : null;
-    // in front of the detailed blocks (both sides of the portal) no tall trees: only a neat clipped hedge, 0.5 m high
-    const cut = [...(yd?.cut ?? [])];
-    if (court) {
-      const inv = this.instMats.map((m) => m.clone().invert()), v = new THREE.Vector3();
-      const inFront = (x: number, z: number) => inv.some((m) => { v.set(x, 0, z).applyMatrix4(m); return v.x > -3 && v.x < BLOCK_W + 3 && v.z > -16 && v.z < 1; });
-      for (const [x, z] of court.trees) if (inFront(x, z)) cut.push([x, z]);
-      court.young = court.young.filter(([x, z]) => !inFront(x, z));
-      if (yd) {
-        yd.hedge = yd.hedge.filter(([x, z]) => !inFront(x, z));
-        const rows: [number, number][] = [[0.4, 2.3], [4.7, 7.8], [10.1, 11.4], [18.3, 19.5], [21.9, 25.0], [27.4, 29.3]];   // between the shop doors
-        for (const m of this.instMats) for (const [a, b] of rows) {
-          const n = Math.max(2, Math.round((b - a) / 0.42));
-          for (let i = 0; i <= n; i++) { v.set(a + ((b - a) * i) / n, 0, -2.6).applyMatrix4(m); yd.hedge.push([v.x, v.z, 0.27]); }
-        }
-      }
-    }
+    // more lawn trees, a hedge instead of tall trees in front of the blocks (courtLayout.ts, shared with the block page)
+    const cut = court ? layoutCourtyard(court, yd, this.instMats) : [];
     if (court) { this.court = new Courtyard(court, r.data.site, cut); this.scene.add(this.court.group); }
     if (yd && this.court) { this.yard = new Yard(yd); this.court.group.add(this.yard.group); }
     this.syncPlan();
     this.applyNight();
     this.cb.onContext?.(r.data.buildings.length);
+    // the outer city: grey boxes out to ~1.8 km; the haze moves out so they show
+    const od = await loadOuter();
+    if (od) {
+      this.outerData = od; this.outer = new OuterCity(od);
+      this.outer.group.visible = this.ctxVisible;
+      this.scene.add(this.outer.group);
+      const fog = this.scene.fog as THREE.Fog; fog.near = 600; fog.far = 2600;
+      this.controls.maxDistance = this.outerEdit ? 2200 : 900;
+    }
   }
   /** show the neighbourhood; the plan image is then clipped to the site so it does not cover the streets */
   setContextVisible(v: boolean) {
     this.ctxVisible = v;
     if (!this.ctx) return;
     this.ctx.group.visible = v;
+    if (this.outer) this.outer.group.visible = v;
     this.plan.geometry = v && this.planSite ? this.planSite : this.planFull;
     (this.base.material as THREE.MeshStandardMaterial).color.set(v ? '#9c9684' : '#a9b59a');
   }
-  setContextStyle(s: CtxStyle) { this.ctx?.setStyle(s); this.court?.setStyle(s); if (this.yard) this.yard.group.visible = s !== 'white'; }
+  setContextStyle(s: CtxStyle) {
+    this.ctx?.setStyle(s); this.court?.setStyle(s); if (this.yard) this.yard.group.visible = s !== 'white';
+    this.ground.setTextured(s !== 'white');
+    (this.base.material as THREE.MeshStandardMaterial).color.set(s === 'white' ? '#e9e8e3' : this.ctxVisible ? '#9c9684' : '#a9b59a');
+  }
   hasCourtyard() { return !!this.court; }
 
   setEditCallbacks(onSelect?: SceneCallbacks['onEditSelect'], onHover?: SceneCallbacks['onEditHover']) {
@@ -565,6 +604,15 @@ export class ComplexScene {
     this.ray.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), this.camera);
     return this.ctx.pick(this.ray);
   }
+  /** ?edit=2: mark buildings of the outer city (cb gets the number of marks) */
+  setOuterEdit(cb: ((n: number) => void) | null) {
+    this.outerEdit = cb;
+    this.controls.maxDistance = cb ? 2200 : this.outer ? 900 : 520;
+    if (!cb) this.outer?.setHover(-1);
+    cb?.(this.outer?.picks.size ?? 0);
+  }
+  outerClear() { this.outer?.clear(); this.outerEdit?.(0); }
+  outerExport() { return this.outer && this.outerData ? this.outer.exportPicks(this.outerData) : null; }
   setLabelsVisible(v: boolean) { this.labels.forEach((l) => (l.visible = v)); }
 
   /** Selecting a block isolates it: every other block disappears and the orbit centre moves to it. */
@@ -631,7 +679,7 @@ export class ComplexScene {
           if (!this.matVis.has(m)) this.matVis.set(m, m.visible);
           m.visible = hide ? false : this.matVis.get(m)!;
         }
-        mesh.castShadow = !hide && !TYPE4.includes(b.def.id);
+        mesh.castShadow = !hide && !T4_LOOK(b.def.id);
       }
       if (b.detail) b.detail.visible = !hide;
     }
@@ -660,7 +708,8 @@ export class ComplexScene {
     this.ro.disconnect();
     this.controls.dispose();
     this.prog?.dispose(); this.clouds.dispose();
-    this.pro?.dispose(); this.skyTex?.dispose(); this.envRT?.dispose(); this.pmrem.dispose();
+    LAMP_LIGHTS.real = false;
+    this.pro?.dispose(); this.skyTex?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -678,6 +727,12 @@ export class ComplexScene {
     this.pro?.resize(w, h);
   }
 
+  private outerPick(clientX: number, clientY: number) {
+    if (!this.outer || !this.outer.group.visible) return -1;
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.ray.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), this.camera);
+    return this.outer.pick(this.ray);
+  }
   private pick(clientX: number, clientY: number): number | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
@@ -723,6 +778,11 @@ export class ComplexScene {
       return;
     }
     if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 5) return; // it was a drag
+    if (this.outerEdit && this.outer) {
+      const id = this.outerPick(e.clientX, e.clientY);
+      if (id >= 0) { this.outer.toggle(id, e.shiftKey); this.outerEdit(this.outer.picks.size); }
+      return;
+    }
     if (this.editing) {
       const i = this.pickHouse(e.clientX, e.clientY);
       this.setPicked(i >= 0 ? [this.ctx!.data.buildings[i].id] : [], e.shiftKey && i >= 0);
@@ -733,6 +793,16 @@ export class ComplexScene {
   private onMove = (e: PointerEvent) => {
     this.lastPtr = { x: e.clientX, y: e.clientY };
     if (this.editing && this.boxMode && this.boxStart) { this.drawBox(e.clientX, e.clientY); return; }
+    if (this.outerEdit && this.outer) {
+      if (e.buttons || this.hoverPending) return;
+      this.hoverPending = true;
+      requestAnimationFrame(() => {
+        this.hoverPending = false;
+        const id = this.outerPick(this.lastPtr.x, this.lastPtr.y);
+        this.outer?.setHover(id); this.renderer.domElement.style.cursor = id >= 0 ? 'pointer' : 'grab';
+      });
+      return;
+    }
     if (this.editing) {
       if (e.buttons || this.hoverPending) return;
       this.hoverPending = true;
@@ -766,19 +836,29 @@ export class ComplexScene {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
+    const now = performance.now(), dt = Math.min(0.1, (now - this.lastT) / 1000); this.lastT = now;
     if (this.camGoal) {
       const k = 0.08;
       this.camera.position.lerp(this.camGoal.pos, k);
       this.controls.target.lerp(this.camGoal.target, k);
       if (this.camera.position.distanceTo(this.camGoal.pos) < 0.3) this.camGoal = null;
     }
+    this.controls.dampingFactor = orbitDamping(dt);
     this.controls.update();
-    const now = performance.now(), dt = Math.min(0.1, (now - this.lastT) / 1000); this.lastT = now;
     if (this.progOn) this.prog?.tick(dt);
-    if (this.pro) this.pro.frame(true);
-    else this.renderer.render(this.scene, this.camera);
-    this.renderer.autoClear = false;
-    this.renderer.render(this.overlay, this.camera);
-    this.renderer.autoClear = true;
+    if (this.glide.tick(dt)) this.applyHour(this.glide.hour, this.glide.moving);
+    if (!this.ready) return;
+    renderStats.view = 'kompleks';
+    renderStats.effects = this.pro ? ['SSGI', 'TRAA', 'Bloom', 'CSM soyalar', 'Klasterli chiroqlar', 'AgX/Neutral tonemap'] : ['Oddiy soyalar', 'MSAA'];
+    renderStats.lights = this.pro ? LAMP_COUNT.n : 0;
+    renderStats.begin(this.renderer);
+    if (this.pro) this.pro.frame(true);                 // the labels are part of the Ultra pipeline
+    else {
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.autoClear = false;
+      this.renderer.render(this.overlay, this.camera);
+      this.renderer.autoClear = true;
+    }
+    renderStats.end(this.renderer);
   };
 }

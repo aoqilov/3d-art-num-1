@@ -314,12 +314,14 @@ export function buildStorey(plan: FloorPlan, kind: StoreyKind) {
     mb.bar('rail', a[0], a[1], b[0], b[1], 0.018, z0 + 0.08, z0 + 0.12);
     const L = rl.hi - rl.lo;
     const n = Math.max(2, Math.round(L / 0.11));
+    // posts stay geometry; the balusters between them are one textured panel (materials.ts, 'rail_panel')
     for (let i = 0; i <= n; i++) {
+      if (!(i === 0 || i === n || i % 11 === 0)) continue;
       const u = rl.lo + (L * i) / n;
       const p: Pt = rl.axis === 'h' ? [u, rl.off] : [rl.off, u];
-      const post = i === 0 || i === n || i % 11 === 0;
-      mb.bar('rail', p[0], p[1], p[0], p[1], post ? 0.022 : 0.008, z0, top - 0.05);
+      mb.bar('rail', p[0], p[1], p[0], p[1], 0.022, z0, top - 0.05);
     }
+    mb.vquad('rail_panel', a[0], a[1], b[0], b[1], z0 + 0.12, top - 0.05, rl.axis === 'h' ? 0 : 1, rl.axis === 'h' ? 1 : 0);
   }
 
   // ---- stairs (switchback; floor landing on the courtyard side, mid landing toward the corridor)

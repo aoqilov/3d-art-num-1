@@ -1,0 +1,6 @@
+Trees used in the app (made smaller by tools/trees_user/optimize.mjs):
+
+"Tree low poly lowpoly" by 00amza — https://sketchfab.com/3d-models/tree-low-poly-lowpoly-73201f05280d48dcb10ed4ca362d69f8
+"Low Poly Forest Tree Pack" by 99.Miles — https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b
+Licence of both: CC BY 4.0 — http://creativecommons.org/licenses/by/4.0/
+Changes: textures resized and re-encoded as WebP; from the pack only four conifers, two bushes and two grass tufts are kept.

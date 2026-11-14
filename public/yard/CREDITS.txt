@@ -1,0 +1,2 @@
+Courtyard models (tools/yard_glb): from Poly Haven (polyhaven.com), CC0 — searsia_lucida (bushes, hedge leaves),
+flower_gazania (flowers), modular_street_seating (bench timber texture). Hedge and bench built in Blender from these.

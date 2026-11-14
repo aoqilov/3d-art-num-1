@@ -4,7 +4,7 @@ import { setMode, type Mode } from '../../mode';
 
 const TIP: Record<Mode, string> = {
   basic: 'Basic — yengil rejim, har qanday qurilmada tez ishlaydi',
-  pro: 'PRO — fotorealistik grafika (PBR teksturalar, HDR osmon, AO, bloom). Kuchli videokarta kerak (GTX 1650+)',
+  pro: 'PRO (Ultra) — fotorealistik grafika: WebGPU, bilvosita yorug‘lik (SSGI), kaskad soyalar, TRAA, PBR teksturalar. Kuchli videokarta kerak (RTX tavsiya etiladi)',
 };
 
 export default function ModeSwitch() {

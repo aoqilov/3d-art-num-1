@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import RenderStats from '../three/RenderStats';
+import { DEFAULT_HOUR, STOPS, fmtStop, stopName } from '../three/timeStops';
 import { BlockScene, PRO, type AptPick, type EnergyPick, type ProState, type WalkState } from './BlockScene';
 import { EnergyCard, EnergyPanel } from './ui/EnergyPanel';
 import { FLOORS, planFor } from './plan';
@@ -47,7 +49,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
   const scene = useRef<BlockScene | null>(null);
   const [lang, setLang] = useState<Lang>(() => (store.get('om-lang') === 'ru' ? 'ru' : 'uz'));
   const t = T[lang];
-  const [hour, setHour] = useState(11);
+  const [hour, setHour] = useState<number>(DEFAULT_HOUR);
   const [rot, setRot] = useState(false);
   const [storey, setStorey] = useState<number | null>(null);
   const [sel, setSel] = useState<Apt | null>(null);
@@ -122,7 +124,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
     }, blockId);
     scene.current = s;
     (window as unknown as { __block: BlockScene }).__block = s;
-    s.setHour(11);
+    s.setHour(DEFAULT_HOUR, true);
     return () => s.dispose();
   }, [blockId]);
 
@@ -206,9 +208,11 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
   const def = BLOCKS.find((b) => b.id === blockId)!;
   const count = (list: Apt[], st: Status) => list.filter((a) => a.status === st).length;
 
-  const timeIcons: [string, number][] = [['sunrise', 7], ['sun', 12], ['sunset', 19], ['moon', 22]];
+  const timeIcons: [string, number][] = [['sunrise', 7], ['sun', 13], ['sunset', 19], ['moon', 23]];
 
   return (
+    <>
+    <RenderStats place="bottom" />
     <div className={'bm sec-' + sec + (walk ? ' walking' : '') + (eng || con || en ? ' eng' : '')}>
       <div ref={host} className="vp" />
 
@@ -226,15 +230,13 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
         </div>
       </header>
 
+      <p className="b-credit">Daraxtlar: 00amza, 99.Miles (Sketchfab, CC BY 4.0)</p>
       {sec === 'bino' && (
         <div className="b-time glass">
-          <div className="icons">
-            {timeIcons.map(([n, h]) => <button key={n} className={'ic' + (Math.abs(hour - h) < 2.5 ? ' on' : '')} onClick={() => setHour(h)}><Icon n={n} /></button>)}
+          <div className="hours" role="group">
+            {STOPS.map((h) => <button key={h} className={'hr' + (h === hour ? ' on' : '')} title={stopName(h, lang)} aria-pressed={h === hour} onClick={() => setHour(h)}>{fmtStop(h)}</button>)}
           </div>
-          <div className="row">
-            <input type="range" min={5} max={23} step={0.25} value={hour} onChange={(e) => setHour(parseFloat(e.target.value))} />
-            <span className="clock">{String(Math.floor(hour)).padStart(2, '0')}:{String(Math.round((hour % 1) * 60)).padStart(2, '0')}</span>
-          </div>
+          <div className="stop-name">{stopName(hour, lang)}</div>
           {detailed && (
             <div className="b-mode">
               {MODE_LABEL[lang].map((l, i) => <button key={l} className={i === mode ? 'on' : ''} onClick={() => setMode(i)}>{l}</button>)}
@@ -405,7 +407,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
                 <button className="btn gold" onClick={() => scene.current?.nextView()}><Icon n="window" />{t.winView}{walk.spot >= 0 ? ` ${walk.spot + 1}/${walk.spots}` : ''}</button>
               )}
               <div className="w-time">
-                {timeIcons.map(([n, h]) => <button key={n} className={'ic' + (Math.abs(hour - h) < 2.5 ? ' on' : '')} onClick={() => setHour(h)}><Icon n={n} /></button>)}
+                {timeIcons.map(([n, h]) => <button key={n} className={'ic' + (hour === h ? ' on' : '')} onClick={() => setHour(h)}><Icon n={n} /></button>)}
               </div>
             </div>
             <div className="w-hint">{touch ? t.walkHintTouch : t.walkHintDesk}</div>
@@ -436,6 +438,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
         </div>
       )}
     </div>
+    </>
   );
 
   function BinoPanel() {

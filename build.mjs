@@ -4,11 +4,36 @@
 // Usage: node build.mjs            → both
 //        node build.mjs light|pro  → one of them
 import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 import { rmSync, mkdirSync, cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const which = process.argv[2] ?? 'all';
+// Every `import 'three'` (ours and the examples') resolves to the WebGPU build: one copy of three.js, whose
+// renderer runs on WebGPU and falls back to WebGL 2 by itself.
+const threeWebGPU = {
+  name: 'three-webgpu',
+  setup(b) {
+    b.onResolve({ filter: /^three$/ }, async (a) => {
+      // @takram packages also touch WebGL-only classes: they get three.module.js, which shares its core
+      // (three.core.js) with the WebGPU build, so nothing is duplicated but the WebGL renderer
+      if (/[\\/]node_modules[\\/]@takram[\\/]/.test(a.importer)) return undefined;
+      const r = await b.resolve('three/webgpu', { kind: a.kind, resolveDir: a.resolveDir });
+      return { path: r.path };
+    });
+    b.onResolve({ filter: /^three\/src\/nodes\/core\/NodeUtils\.js$/ }, () => ({ path: fileURLToPath(new URL('./src/three/nodeUtilsShim.ts', import.meta.url)) }));
+    // @takram 0.19 reads TSL struct types as `struct(...).layout.name`; three r187 keeps the name on the struct
+    // type itself (struct(...).name, struct(...).isStructTypeNode)
+    b.onLoad({ filter: /@takram[\\/]three-(atmosphere|geospatial)[\\/]build[\\/]webgpu\.js$/ }, async (a) => {
+      const src = readFileSync(a.path, 'utf8')
+        .replace(/"layout" in (\w+) && \1\.layout instanceof \w+/g, '($1 != null && $1.isStructTypeNode === true)')
+        .replace(/\.layout\.name/g, '.name');
+      return { contents: src, loader: 'js' };
+    });
+  },
+};
 const common = {
-  bundle: true, minify: true, format: 'esm', splitting: true, target: 'es2020', jsx: 'automatic', legalComments: 'none',
+  bundle: true, minify: true, format: 'esm', splitting: true, target: 'es2022', jsx: 'automatic', legalComments: 'none',
+  plugins: [threeWebGPU],
   entryNames: '[name]', chunkNames: 'chunks/[name]-[hash]',
   define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'warning',
 };

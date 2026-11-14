@@ -20,7 +20,16 @@ import { Avatar } from './avatar';
 import { EntryDoors } from './entryDoors';
 import { Lighting } from './lighting';
 import type { RoomKind } from './plan';
-import { Context, loadContext, loadLocalEdits, siteGeometry } from '../three/context';
+import { PMREMGenerator } from 'three/webgpu';
+import { createRenderer, orbitDamping, type Renderer } from '../three/gpu';
+import { DEFAULT_HOUR, HourGlide } from '../three/timeStops';
+import { TREE_NIGHT } from '../three/glbTrees';
+import { BlockSurroundings } from './surroundings';
+import { LAMP_COUNT, LAMP_LIGHTS } from '../three/lamps';
+import { CSMShadowNode } from 'three/examples/jsm/csm/CSMShadowNode.js';
+import { ClusteredLighting } from 'three/examples/jsm/lighting/ClusteredLighting.js';
+import { renderStats } from '../three/stats';
+import { SUN_DAY, daylight, sunDir } from '../three/sun';
 
 export type AptPick = { storey: number; index: number; label: string };
 export type LiftPhase = 'call' | 'open' | 'board' | 'select' | 'close' | 'move' | 'arrive' | 'leave';
@@ -42,27 +51,35 @@ export type EnergyPick = { storey: number; index: number } | { mat: string; stor
 export type ProState = { pt: boolean; samples: number; target: number; busy: boolean; canPT: boolean; ao: boolean; bloom: boolean; ready: boolean };
 export interface ProRenderer {
   frame(changed: boolean): boolean;                       // draw; true = keep calling (progressive render)
-  hour(i: { sunDir: THREE.Vector3; nightF: number; dusk: number; dayK: number }): void;
+  hour(i: { sunDir: THREE.Vector3; nightF: number; dusk: number; dayK: number; hour: number }): void;
   resize(w: number, h: number): void;
   furniture(g: THREE.Object3D): void;
   set(o: Partial<{ pt: boolean; ao: boolean; bloom: boolean }>): void;
   dispose(): void;
 }
 export type ProInternals = {
-  renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight;
+  renderer: Renderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight;
   isCut: () => boolean; redraw: () => void; emit: (p: ProState) => void; hidden: () => THREE.Object3D[];
   /** Real lights of the lit fixtures around the visitor (path tracer); the raster pool is flagged userData.pool. */
   lights?: () => THREE.Light[];
   /** True during the walk: interior exposure and bloom instead of the night-sky settings. */
   interior?: () => boolean;
+  /** drawn on top of the finished frame (block numbers of the complex view) */
+  overlay?: THREE.Scene;
+  /** the cloud layer (composited over the sky by the Ultra renderer) */
+  clouds?: { mesh: THREE.Mesh; setCover(c: number): void };
+  /** rotation from this scene's frame to the complex frame (the physical sky is placed on the earth) */
+  worldToComplex?: THREE.Matrix4;
+  /** the physical atmosphere (sky, sun, haze); otherwise the classic sky texture and fog */
+  atmosphere?: boolean;
 };
-export const PRO: { create?: (i: ProInternals) => ProRenderer } = {};
+export const PRO: { create?: (i: ProInternals) => ProRenderer; sunLight?: (distance: number) => THREE.DirectionalLight } = {};
 
 const cut = CUT;
 
 function prepMaterials() {
   const lib = materials();
-  for (const [name, m] of Object.entries(lib)) prep(m as THREE.Material, name !== 'glass' && name !== 'lattice_white' && name !== 'lattice_dark');
+  for (const [name, m] of Object.entries(lib)) prep(m as THREE.Material, name !== 'glass' && name !== 'lattice_white' && name !== 'lattice_dark' && name !== 'rail_panel');
   facadeGlow(lib);
   return lib;
 }
@@ -82,7 +99,9 @@ function skyTexture() {
 const lerpC = (a: string, b: string, t: number) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString();
 
 export class BlockScene {
-  private renderer: THREE.WebGLRenderer;
+  private renderer: Renderer;
+  /** the WebGPU backend initialises asynchronously; nothing is drawn before */
+  private ready = false;
   private scene = new THREE.Scene();
   camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
@@ -109,7 +128,6 @@ export class BlockScene {
   private vols: ReturnType<typeof buildAptVolumes> | null = null;
   private aptMode = false;
   private trees: THREE.Object3D[] = [];
-  private groundObjs: THREE.Object3D[] = [];
   private ctx: THREE.Group | null = null;
   private ctxCentre = new THREE.Vector3();
   private volState: (s: number, i: number) => VolState = () => 'dim';
@@ -129,11 +147,7 @@ export class BlockScene {
   private ctxBoxes = new Map<number, THREE.Object3D[]>();
   private ctxGhost: THREE.MeshStandardMaterial | null = null;
   private ctxSprites: THREE.Sprite[] = [];
-  private ctxReal: THREE.InstancedMesh | null = null;
-  private ctxCity: THREE.Group | null = null;
-  private ctxSolidMats: THREE.Material[] = [];
   private doorYaw = 0;
-  private ctxPlan: { mesh: THREE.Mesh; full: THREE.BufferGeometry; site: THREE.BufferGeometry | null; solid: boolean } | null = null;
   private drag = { x: 0, y: 0, moved: 0 };
   private nightF = 0;
   // visitor: first / third person, body size, game-style WASD with mouse look
@@ -160,6 +174,8 @@ export class BlockScene {
   private enOn = false;
   private en = { view: 'flats' as 'flats' | 'thermal', insul: true, season: 'winter' as 'winter' | 'summer', sel: null as string | null };
   private grass: THREE.Mesh | null = null;
+  /** the real surroundings (surroundings.ts): ground, streets, courtyard, neighbourhood, other blocks, outer city */
+  private sur: BlockSurroundings | null = null;
   private lighting: Lighting | null = null;
   private lightsOverride: boolean | null = null;
   private doorOpen = new Map<string, number>();
@@ -167,44 +183,52 @@ export class BlockScene {
   private cabins: THREE.Group[] = [];
   private cabinLeaves: THREE.Mesh[][] = [];
   readonly detailed: boolean;
-  hour = 11;
+  hour = DEFAULT_HOUR;
+  /** the hour glides between the time stops (timeStops.ts) */
+  private glide = new HourGlide(DEFAULT_HOUR);
   private pro: ProRenderer | null = null;
   private proWants = false;
 
   constructor(private el: HTMLElement, private cb: Callbacks, readonly blockId = 1) {
     this.detailed = TYPE4.includes(blockId);
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false });
+    this.renderer = createRenderer({ antialias: !PRO.create });   // Ultra: TRAA instead of MSAA
+    // Ultra: every street and path lamp of the surroundings is a real light; clustered (Forward+) lighting keeps them cheap
+    LAMP_LIGHTS.real = !!PRO.create; LAMP_COUNT.n = 0;
+    if (PRO.create) (this.renderer as unknown as { lighting: unknown }).lighting = new ClusteredLighting(1024);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.localClippingEnabled = true;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     el.appendChild(this.renderer.domElement);
 
-    const pm = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
     // mirrors reflect an interior of their own, so they stay bright at night when the sky light is dimmed
     const mirror = furnitureMaterials().mirror as THREE.MeshStandardMaterial;
-    mirror.envMap = this.scene.environment; mirror.envMapIntensity = 0.85; mirror.color.set('#dfe5e8');
+    mirror.envMapIntensity = 0.85; mirror.color.set('#dfe5e8');
+    void this.renderer.init().then(() => {
+      const room = new PMREMGenerator(this.renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+      mirror.envMap = room; mirror.needsUpdate = true;
+      if (!this.pro) this.scene.environment = room;        // PRO lights the scene with its sky instead
+      this.ready = true; this.dirty = true;
+    });
     this.scene.environmentIntensity = 0.55;
     this.scene.background = skyTexture();
     this.scene.add(this.clouds.mesh);
     this.scene.fog = new THREE.Fog('#dfe7ea', 260, 700);
 
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.3, 2000);
+    this.camera = new THREE.PerspectiveCamera(46, 1, 0.3, 4000);   // the outer city reaches ~1.8 km
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.6; // allow the low, looking-up street view of the render
     this.controls.minDistance = 6;
     this.controls.maxDistance = 520;
-    this.controls.addEventListener('start', () => (this.goal = null));
+    this.controls.addEventListener('start', () => { this.goal = null; this.userMoved = true; });
     this.controls.addEventListener('change', () => (this.dirty = true));
     this.view('render', true);
 
     this.addLights();
-    this.addGround();
     this.buildBlock();
+    this.addGround();
     this.scene.add(this.block);
     this.block.add(this.picks, this.outlines, this.furniture);
 
@@ -228,14 +252,16 @@ export class BlockScene {
         emit: (p) => this.cb.onPro?.(p),
         hidden: () => [this.ring, this.picks, this.outlines, this.night.decals].filter(Boolean) as THREE.Object3D[],   // scallop decals: raster only
         interior: () => !!this.walk,
+        clouds: this.clouds, atmosphere: true,
+        worldToComplex: new THREE.Matrix4().makeRotationY(blockTheta(BLOCKS.find((b) => b.id === this.blockId)!)),
         lights: () => {
           const w = this.walk; if (!this.lighting || !w) return [];
           const g = w.grid;
           return this.lighting.allLights({ storey: w.storey, x: w.x, y: w.y, apt: w.apt, sees: (a, b, c, d) => g.sees(a, b, c, d) });
         },
       });
-      this.setHour(this.hour);
     }
+    this.applyHour(this.hour);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(el);
     this.resize();
@@ -245,71 +271,48 @@ export class BlockScene {
   private addLights() {
     this.hemi = new THREE.HemisphereLight('#dfeaf6', '#8a8f7c', 0.75);
     this.scene.add(this.hemi);
-    const sun = new THREE.DirectionalLight('#ffeacc', 3.4);
+    // Ultra: the atmosphere's sun (colour and strength from the air it crosses); otherwise a plain light
+    const sun = PRO.sunLight ? PRO.sunLight(125) : new THREE.DirectionalLight('#ffeacc', 3.4);
+    sun.color.set('#ffeacc'); sun.intensity = 3.4;
     this.sun = sun;
-    sun.position.set(38, 80, -95); // light from the front-left of the render view; west end facade in shade
     sun.castShadow = true;
     sun.shadow.mapSize.set(4096, 4096);
-    const s = 42;
-    Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 20, far: 260 });
+    // Ultra: cascaded shadows (sharp at the camera, the neighbours and trees further out too); otherwise one map over
+    // the block and its nearest neighbours
+    const s = PRO.create ? 42 : 95;
+    Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 20, far: 300 });
     sun.shadow.bias = -0.0002;
     sun.shadow.normalBias = 0.04;
     sun.target.position.set(0, 20, 0);
     this.scene.add(sun, sun.target);
-  }
-
-  private addGround() {
-    const grass = (this.grass = new THREE.Mesh(new THREE.CircleGeometry(900, 48), new THREE.MeshStandardMaterial({ color: '#7f9a62', roughness: 1 })));
-    grass.rotation.x = -Math.PI / 2;
-    grass.receiveShadow = true;
-    this.scene.add(grass);
-    const pave = new THREE.Mesh(new THREE.PlaneGeometry(BLOCK_W + 16, BLOCK_D + 18), new THREE.MeshStandardMaterial({ color: '#c9c4ba', roughness: 0.95 }));
-    pave.rotation.x = -Math.PI / 2;
-    pave.position.set(0, 0.01, 1);
-    pave.receiveShadow = true;
-    this.scene.add(pave);
-    this.groundObjs.push(pave);
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(260, 12), new THREE.MeshStandardMaterial({ color: '#55585c', roughness: 0.9 }));
-    road.rotation.x = -Math.PI / 2;
-    road.position.set(0, 0.015, -BLOCK_D / 2 - 15);
-    road.receiveShadow = true;
-    this.scene.add(road);
-    this.groundObjs.push(road);
-    this.addTrees();
-  }
-
-  /** Stylised deciduous trees around the block (render has a green buffer on both sides). */
-  private addTrees() {
-    const trunk = new THREE.CylinderGeometry(0.14, 0.2, 3.2, 7).translate(0, 1.6, 0);
-    const crown = new THREE.IcosahedronGeometry(1, 1);
-    const tMat = new THREE.MeshStandardMaterial({ color: '#5b4636', roughness: 1 });
-    const cMat = new THREE.MeshStandardMaterial({ color: '#5f8a45', roughness: 0.9, flatShading: true });
-    const spots: [number, number, number][] = [];
-    let seed = 7;
-    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 46; i++) {
-      const side = i % 4;
-      let x = 0, z = 0;
-      if (side === 0) { x = -26 + r() * 52; z = -BLOCK_D / 2 - 6 - r() * 4; }        // street verge
-      if (side === 1) { x = -26 + r() * 52; z = BLOCK_D / 2 + 9 + r() * 14; }         // courtyard
-      if (side === 2) { x = -BLOCK_W / 2 - 7 - r() * 12; z = -10 + r() * 30; }
-      if (side === 3) { x = BLOCK_W / 2 + 7 + r() * 12; z = -10 + r() * 30; }
-      if (side === 0 && Math.abs(x) < 4.5) continue; // keep the portal axis open
-      spots.push([x, z, 0.8 + r() * 0.6]);
+    if (PRO.create && !location.search.includes('nocsm')) {
+      const csm = new CSMShadowNode(sun, { cascades: 3, maxFar: 600, mode: 'practical', lightMargin: 150 });
+      csm.fade = true;
+      (sun.shadow as unknown as { shadowNode: unknown }).shadowNode = csm;
     }
-    const tr = new THREE.InstancedMesh(trunk, tMat, spots.length);
-    const cr = new THREE.InstancedMesh(crown, cMat, spots.length * 3);
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
-    spots.forEach(([x, z, k], i) => {
-      tr.setMatrixAt(i, m.compose(v.set(x, 0, z), q, sc.set(k, k, k)));
-      for (let j = 0; j < 3; j++) {
-        const a = j * 2.1 + i;
-        cr.setMatrixAt(i * 3 + j, m.compose(v.set(x + Math.cos(a) * 0.9 * k, (3.6 + j * 0.9) * k, z + Math.sin(a) * 0.9 * k), q, sc.setScalar((2.1 - j * 0.35) * k)));
-      }
+  }
+
+  /** The real surroundings of the complex view around this block (surroundings.ts). */
+  private addGround() {
+    const sur = (this.sur = new BlockSurroundings(this.blockId, () => (this.dirty = true)));
+    this.grass = sur.groundMesh;
+    this.scene.add(sur.groundMesh, sur.group);
+    if (sur.blocks) this.scene.add(sur.blocks);
+    void sur.ready.then(() => {
+      this.trees = [...sur.trees];
+      const site = !!this.ctx?.visible;
+      this.trees.forEach((t) => (t.visible = !site && (!this.aptMode || !!this.walk)));
+      sur.setNight(this.nightF);
+      if (this.lastView && !this.userMoved && !this.walk && !this.ctx?.visible) this.view(this.lastView, true);
+      this.dirty = true;
     });
-    tr.castShadow = cr.castShadow = true; cr.receiveShadow = true;
-    this.trees = [tr, cr];
-    this.scene.add(tr, cr);
+    // the haze moves out so the outer city shows (classic sky; the physical one has its own aerial perspective)
+    void sur.outerReady.then((ok) => { if (ok && !this.pro) { const f = this.scene.fog as THREE.Fog; f.near = 600; f.far = 2600; } this.dirty = true; });
+  }
+  /** the real surroundings, or (site view) the master-plan picture with pale blocks */
+  private showSur(v: boolean) {
+    const s = this.sur; if (!s) return;
+    s.group.visible = v; if (s.blocks) s.blocks.visible = v;
   }
 
   private meshFrom(geometry: THREE.BufferGeometry, mats: MatName[], storey: number) {
@@ -347,7 +350,7 @@ export class BlockScene {
     this.whole = new THREE.Mesh(mg.geometry, mg.materials);
     this.whole.castShadow = this.whole.receiveShadow = true;
     this.block.add(this.whole);
-    this.block.add(this.night.group);
+    this.block.add(this.night.group, this.night.fixtures);
     this.buildLifts();
     this.entryDoors = new EntryDoors(this.blockId);
     this.block.add(this.entryDoors.group);
@@ -430,16 +433,27 @@ export class BlockScene {
   // ---------- public API ----------
   view(kind: 'render' | 'aerial' | 'court' | 'top' | 'side', instant = false) {
     const V = {
-      render: { pos: new THREE.Vector3(-52, 1.7, -52), target: new THREE.Vector3(-2, 23, 0) },
+      // spots in the real surroundings: on the verge in front of the street facade, over the courtyard
+      render: { pos: new THREE.Vector3(20, 1.7, -55), target: new THREE.Vector3(-2, 23, 0) },
       aerial: { pos: new THREE.Vector3(-70, 80, -85), target: new THREE.Vector3(0, 18, 0) },
-      court: { pos: new THREE.Vector3(45, 25, 70), target: new THREE.Vector3(0, 18, 0) },
+      court: { pos: new THREE.Vector3(-25, 18, 70), target: new THREE.Vector3(0, 18, 0) },
       top: { pos: new THREE.Vector3(-18, 125, -40), target: new THREE.Vector3(0, 10, 0) },
       side: { pos: new THREE.Vector3(-95, 30, 8), target: new THREE.Vector3(0, 22, 0) },
     }[kind];
-    if (instant) { this.camera.position.copy(V.pos); this.controls.target.copy(V.target); this.controls.update(); }
-    else this.goal = { pos: V.pos.clone(), target: V.target.clone() };
+    // in the real surroundings: a spot clear of houses, the other blocks and tree crowns (taken again once they load)
+    const pos = (this.sur?.clearSpot(V.pos) ?? V.pos).clone();
+    // within the orbit's tilt limit (an unreachable goal would keep pulling the camera for ever)
+    const sp = new THREE.Spherical().setFromVector3(pos.clone().sub(V.target));
+    sp.phi = Math.min(sp.phi, this.controls.maxPolarAngle - 0.01);
+    pos.setFromSpherical(sp).add(V.target);
+    this.lastView = kind; this.userMoved = false;
+    if (instant) { this.goal = null; this.camera.position.copy(pos); this.controls.target.copy(V.target); this.controls.update(); }
+    else this.goal = { pos: pos.clone(), target: V.target.clone() };
     this.dirty = true;
   }
+  private lastView: Parameters<BlockScene['view']>[0] | null = null;
+  private userMoved = false;
+  private goalFrames = 0;
 
   currentStorey() { return this.storey; }
 
@@ -448,7 +462,7 @@ export class BlockScene {
     if (on && !this.ctx) this.ctx = this.buildContext();
     if (on) this.ctxStyle(false);
     if (this.ctx) this.ctx.visible = on;
-    this.groundObjs.forEach((o) => (o.visible = !on));
+    this.showSur(!on);
     if (on) this.trees.forEach((t) => (t.visible = false));
     else if (!this.aptMode) this.trees.forEach((t) => (t.visible = true));
     this.dirty = true;
@@ -463,7 +477,6 @@ export class BlockScene {
     const plan = new THREE.Mesh(new THREE.PlaneGeometry(PLAN_SIZE.w, PLAN_SIZE.d), new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
     plan.rotation.x = -Math.PI / 2; plan.position.y = 0.04; plan.receiveShadow = true;
     g.add(plan);
-    this.ctxPlan = { mesh: plan, full: plan.geometry, site: null, solid: false };
     const ghost = new THREE.MeshStandardMaterial({ color: '#f4f2ec', roughness: 0.8, transparent: true, opacity: 0.55 });
     this.ctxGhost = ghost;
     const edgeM = new THREE.LineBasicMaterial({ color: '#c9a564' });
@@ -498,52 +511,16 @@ export class BlockScene {
     n.rotation.x = -Math.PI / 2; n.position.set(0, 0.08, -PLAN_SIZE.d / 2 - 22);
     g.add(n);
     this.ctxCentre.set(0, 0, 0).applyMatrix4(m);
-    // neighbourhood for window views: the real one (public/context, OpenStreetMap) or, failing that, a generic one
-    const city = (this.ctxCity = new THREE.Group()); city.visible = false; g.add(city);
-    loadContext().then((r) => {
-      if (!r) { city.add(buildCity()); this.dirty = true; return; }
-      const c = new Context(r.data, () => (this.dirty = true));
-      c.build(r.file, loadLocalEdits());
-      city.add(c.group);
-      if (this.ctxPlan) { this.ctxPlan.site = siteGeometry(r.data.site, PLAN_SIZE.w, PLAN_SIZE.d); this.syncCtxPlan(); }
-    });
-    const win = windowTex();
-    const wall = new THREE.MeshStandardMaterial({ color: '#ffffff', map: win, roughness: 0.85 });
-    const top = new THREE.MeshStandardMaterial({ color: '#d9d4ca', roughness: 1 });
-    this.ctxSolidMats = [wall, wall, top, top, wall, wall];
-    // the other type-4 blocks as real exterior models (shown from inside a flat, where boxes would look wrong)
-    const others = BLOCKS.filter((b) => b.id !== this.blockId && TYPE4.includes(b.id));
-    if (others.length) {
-      const mb = mergedBlock(true);
-      const inst = new THREE.InstancedMesh(mb.geometry, mb.materials, others.length);
-      const c = new THREE.Matrix4().makeTranslation(-BLOCK_W / 2, 0, -BLOCK_D / 2), mm = new THREE.Matrix4();
-      others.forEach((b, i) => inst.setMatrixAt(i, mm.makeTranslation(b.x, 0, b.z).multiply(new THREE.Matrix4().makeRotationY(blockTheta(b))).multiply(c)));
-      inst.castShadow = inst.receiveShadow = true; inst.computeBoundingSphere(); inst.visible = false;
-      this.ctxReal = inst; g.add(inst);
-    }
     this.scene.add(g);
     return g;
   }
-  /** Context look: pale see-through massing (site view) or solid neighbours (view from a window). */
+  /** Site view look: master-plan picture with the other blocks as pale see-through massing (the window view shows
+   *  the real surroundings instead, surroundings.ts). */
   private ctxStyle(solid: boolean) {
-    if (!this.ctx || !this.ctxGhost) return;
-    this.ctxGhost.transparent = !solid; this.ctxGhost.opacity = solid ? 1 : 0.55; this.ctxGhost.color.set(solid ? '#ece7dd' : '#f4f2ec'); this.ctxGhost.needsUpdate = true;
-    for (const [id, objs] of this.ctxBoxes) {
-      const real = solid && TYPE4.includes(id) && !!this.ctxReal;
-      objs.forEach((o) => (o.visible = !real)); if (solid) objs[1].visible = false;
-      (objs[0] as THREE.Mesh).material = solid ? this.ctxSolidMats : this.ctxGhost;
-    }
-    if (this.ctxCity) this.ctxCity.visible = solid;
-    if (this.ctxPlan) { this.ctxPlan.solid = solid; this.syncCtxPlan(); }
-    if (this.ctxReal) this.ctxReal.visible = solid;
-    for (const sp of this.ctxSprites) { sp.material.depthTest = solid; sp.material.needsUpdate = true; }
-  }
-
-  /** with the real streets shown, the plan image is clipped to the site so it does not cover them */
-  private syncCtxPlan() {
-    const p = this.ctxPlan!;
-    p.mesh.geometry = p.solid && p.site ? p.site : p.full;
-    this.dirty = true;
+    if (!this.ctx || !this.ctxGhost || solid) return;
+    this.ctxGhost.transparent = true; this.ctxGhost.opacity = 0.55; this.ctxGhost.color.set('#f4f2ec'); this.ctxGhost.needsUpdate = true;
+    for (const [, objs] of this.ctxBoxes) { objs.forEach((o) => (o.visible = true)); (objs[0] as THREE.Mesh).material = this.ctxGhost; }
+    for (const sp of this.ctxSprites) { sp.material.depthTest = false; sp.material.needsUpdate = true; }
   }
 
   /** Camera over the whole complex with this block in it. */
@@ -563,7 +540,7 @@ export class BlockScene {
     if (this.vols) this.vols.group.visible = on;
     this.trees.forEach((t) => (t.visible = !on));
     this.applyMode();
-    this.setHour(this.hour);
+    this.applyHour(this.hour);
     this.repaintVols();
   }
   paintApts(state: (s: number, i: number) => VolState, hot: { storey: number; index: number } | null) {
@@ -718,10 +695,8 @@ export class BlockScene {
     this.aptMode = false;
     this.applyMode();
     for (const l of LIFTS) this.placeCabin(l.id, storey, 0);
-    this.setContext(true); this.ctxStyle(true);
+    this.setContext(false);
     this.trees.forEach((t) => (t.visible = true));
-    // crisp paving around the block over the master-plan picture (seen up close from the courtyard)
-    this.groundObjs.forEach((o) => { o.userData.y ??= o.position.y; o.visible = true; o.position.y = o.userData.y + 0.05; });
     this.controls.enabled = false; this.controls.autoRotate = false;
     this.camera.near = 0.05; this.camera.fov = this.walkFov();
     const g = materials().glass as THREE.MeshPhysicalMaterial;
@@ -734,7 +709,7 @@ export class BlockScene {
     this.renderer.domElement.style.cursor = 'grab';
     this.avatar.group.visible = this.third;
     this.resize();
-    this.setHour(this.hour);
+    this.applyHour(this.hour);
     this.emitWalk(true);
   }
   private eye() { return this.body.h * 0.935; }
@@ -805,7 +780,6 @@ export class BlockScene {
     g.opacity = 0.9; g.envMapIntensity = 2.2; g.color.set('#14181d');
     if (this.ring) this.ring.visible = false;
     this.lamp.intensity = 0; this.bounce.intensity = 0;
-    this.groundObjs.forEach((o) => { if (o.userData.y !== undefined) o.position.y = o.userData.y; });
     this.setContext(false);
     const st = Math.max(1, storey);
     this.camera.position.set(-14, (st - 1) * FLOOR_H + 22, -26);
@@ -813,7 +787,7 @@ export class BlockScene {
     this.resize();
     this.setStorey(st);
     if (apt !== null) this.selectApt(apt);
-    this.setHour(this.hour);
+    this.applyHour(this.hour);
     this.cb.onWalk?.(null);
     return { storey: st, apt };
   }
@@ -887,7 +861,7 @@ export class BlockScene {
     if (this.liftDoors) this.liftDoors.visible = v;
     if (this.entryDoors) this.entryDoors.group.visible = v;
     if (this.lighting) this.lighting.group.visible = v;
-    if (this.ctx && this.walk) this.ctx.visible = v;
+    if (this.walk) this.showSur(v);
     this.trees.forEach((t) => (t.visible = v));
     this.cabins.forEach((c, i) => (c.visible = v || (this.walk?.ride?.kind === 'lift' && this.walk.ride.id === i)));
   }
@@ -1138,22 +1112,23 @@ export class BlockScene {
   /** Flats' lights: on after dusk unless the visitor switched them. */
   private aptLightsOn() { return this.lightsOverride ?? this.nightF > 0.3; }
   setLights(on: boolean) { this.lightsOverride = on; this.dirty = true; this.emitWalk(true); }
-  /** Time of day 5..23 h: sun path, sky, ambient and the evening lighting of the facade. */
-  setHour(h: number) {
+  /** Time of day (one of the stops of timeStops.ts): glides there over ~1.5 s; instant = jump. */
+  setHour(h: number, instant = false) {
+    this.glide.set(h, instant);
+    if (instant) this.applyHour(h);
+    this.dirty = true;
+  }
+  /** Real sun over Tashkent on 21 June (sun.ts), turned into this block's frame; sky, ambient, evening lights. */
+  private applyHour(h: number) {
     this.hour = h;
-    const up = Math.max(0, Math.sin((Math.PI * (h - 6)) / 14));            // 6:00 → 20:00
-    const elev = THREE.MathUtils.degToRad(4 + 58 * up);
-    const az = THREE.MathUtils.degToRad(-22 + (h - 11) * 15);              // 11:00 = render light direction
-    const base = new THREE.Vector3(38, 0, -95).normalize();
-    const dir = base.applyAxisAngle(new THREE.Vector3(0, 1, 0), az);
-    const r = 125;
-    this.sun.position.set(dir.x * r * Math.cos(elev), r * Math.sin(elev), dir.z * r * Math.cos(elev));
-    const nightF = h >= 20.5 || h <= 5 ? 1 : h > 18.5 ? (h - 18.5) / 2 : h < 6.5 ? (6.5 - h) / 1.5 : 0;
-    const dusk = Math.max(0, 1 - Math.abs(h - 19) / 1.6) + Math.max(0, 1 - Math.abs(h - 6.3) / 1.2);
-    const dayK = 1 - nightF;
+    const def = BLOCKS.find((b) => b.id === this.blockId)!;
+    const dir = sunDir(SUN_DAY, ((h % 24) + 24) % 24).applyAxisAngle(new THREE.Vector3(0, 1, 0), -blockTheta(def));
+    const { el, nightF, dusk, dayK } = daylight(dir);
+    const low = THREE.MathUtils.clamp(el / 25, 0, 1);
+    this.sun.position.copy(dir).multiplyScalar(125);
     this.clouds.setSun(this.sun.position, { dayK, dusk, nightF });
-    this.sun.intensity = 3.4 * dayK * Math.min(1, up * 3 + 0.15);
-    this.sun.color.set(lerpC('#fff0d8', '#ff9f5a', Math.min(1, dusk)));
+    this.sun.intensity = 3.4 * dayK * (0.35 + 0.65 * low);
+    this.sun.color.set(lerpC('#ff9f5a', '#fff0d8', low));
     this.hemi.intensity = 0.15 + 0.6 * dayK;
     this.hemi.color.set(lerpC('#dfeaf6', '#41507a', nightF));
     this.scene.environmentIntensity = 0.08 + 0.47 * dayK;
@@ -1166,7 +1141,9 @@ export class BlockScene {
     this.night.set(this.aptMode ? 0 : nightF);
     this.nightF = nightF;
     this.lamp.intensity = this.walk ? 2.2 + 9 * nightF : 0;
-    this.pro?.hour({ sunDir: this.sun.position.clone().normalize(), nightF, dusk, dayK });
+    TREE_NIGHT.value = 0;                 // no uplights under every tree of the district (the block stands in an open zone)
+    this.sur?.setNight(nightF);
+    this.pro?.hour({ sunDir: dir, nightF, dusk, dayK, hour: h });
     this.dirty = true;
     if (this.walk) this.emitWalk(true);
   }
@@ -1174,8 +1151,16 @@ export class BlockScene {
   proSet(o: Partial<{ pt: boolean; ao: boolean; bloom: boolean }>) { this.pro?.set(o); this.dirty = true; }
   isPro() { return !!this.pro; }
   private draw(changed: boolean) {
+    // see-through corridor to the block: not inside, not in the site view, not from inside the open zone
+    const out = this.camera.position.distanceTo(this.controls.target) > 12 && Math.hypot(this.camera.position.x, this.camera.position.z) > 30;
+    this.sur?.setFade(!this.walk && !this.ctx?.visible && out, this.camera.position, this.controls.target);
+    renderStats.view = this.walk ? 'xonadon ichi' : 'blok';
+    renderStats.effects = this.pro ? ['SSGI', 'TRAA', 'Bloom', 'Fizik atmosfera', 'AgX tonemap', 'CSM soyalar', 'Klasterli chiroqlar'] : ['Oddiy soyalar', 'MSAA'];
+    renderStats.lights = this.pro ? LAMP_COUNT.n : 0;
+    renderStats.begin(this.renderer);
     if (this.pro) this.proWants = this.pro.frame(changed);
     else this.renderer.render(this.scene, this.camera);
+    renderStats.end(this.renderer);
   }
 
   /** Cut the building above storey s (null = whole building). */
@@ -1197,7 +1182,8 @@ export class BlockScene {
     if (on && !this.con) { this.con = new Construction(); this.block.add(this.con.group); }
     if (this.con) { this.con.group.visible = on; if (!on) this.con.clearPick(); }
     // see the foundation through the ground
-    for (const o of [this.grass, ...this.groundObjs] as THREE.Mesh[]) {
+    if (this.sur) this.sur.group.visible = !on && !this.ctx?.visible;
+    for (const o of [this.grass] as THREE.Mesh[]) {
       if (!o) continue;
       const m = o.material as THREE.MeshStandardMaterial;
       m.transparent = on; m.opacity = on ? 0.35 : 1; m.depthWrite = !on; m.needsUpdate = true;
@@ -1364,7 +1350,8 @@ export class BlockScene {
     if (this.engOn) this.ghost(false);
     this.eng?.dispose(); this.con?.dispose(); this.clouds.dispose();
     cancelAnimationFrame(this.raf);
-    FACADE_NIGHT.value = 0;          // the facade materials are shared with the complex view (no night there)
+    FACADE_NIGHT.value = 0; TREE_NIGHT.value = 0;          // the facade materials are shared with the complex view (no night there)
+    LAMP_LIGHTS.real = false;
     this.pro?.dispose();
     this.ro.disconnect();
     this.controls.dispose();
@@ -1386,8 +1373,10 @@ export class BlockScene {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     // desktop: the side panel covers ~370 px on the right, so centre the scene in the free area
-    if (this.walk) this.camera.clearViewOffset();
-    else if (w > 760) this.camera.setViewOffset(w, h, 185, 0, w, h); else this.camera.setViewOffset(w, h, 0, h * 0.2, w, h); // mobile: bottom sheet covers ~45%
+    // (kept in userData too: the Ultra renderer's TRAA jitters on top of it)
+    const v = this.walk ? null : w > 760 ? [w, h, 185, 0, w, h] : [w, h, 0, h * 0.2, w, h]; // mobile: bottom sheet covers ~45%
+    this.camera.userData.baseView = v && { fullWidth: v[0], fullHeight: v[1], offsetX: v[2], offsetY: v[3], width: v[4], height: v[5] };
+    if (v) this.camera.setViewOffset(v[0], v[1], v[2], v[3], v[4], v[5]); else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     this.pro?.resize(w, h);
     this.dirty = true;
@@ -1489,6 +1478,8 @@ export class BlockScene {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now(), dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
+    if (!this.ready) return;
+    if (this.glide.tick(dt)) this.applyHour(this.glide.hour);
     if (this.walk) {
       if (this.updateWalk(dt)) this.dirty = true;
       if (!this.dirty && !this.proWants) return;
@@ -1499,9 +1490,10 @@ export class BlockScene {
     if (this.goal) {
       this.camera.position.lerp(this.goal.pos, 0.08);
       this.controls.target.lerp(this.goal.target, 0.08);
-      if (this.camera.position.distanceTo(this.goal.pos) < 0.05) this.goal = null;
+      if (this.camera.position.distanceTo(this.goal.pos) < 0.05 || ++this.goalFrames > 240) { this.goal = null; this.goalFrames = 0; }
       this.dirty = true;
     }
+    this.controls.dampingFactor = orbitDamping(dt);
     this.controls.update();
     if (this.engOn && this.eng?.update(dt)) this.dirty = true;
     if (this.lighting?.update(dt, { walker: null, aptOn: this.aptLightsOn(), nightF: this.nightF, rig: false })) this.dirty = true;
@@ -1531,51 +1523,5 @@ function facadeBox(w: number, h: number, d: number) {
       uv.setXY(i, top ? 0 : uv.getX(i) * Math.round(widths[f] / 3.2), top ? 0 : uv.getY(i) * Math.round(h / 3));
     }
   }
-  return g;
-}
-function windowTex() {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const x = c.getContext('2d')!;
-  x.fillStyle = '#eee8dc'; x.fillRect(0, 0, 64, 64);
-  x.fillStyle = '#56636f'; x.fillRect(16, 14, 32, 34);
-  x.fillStyle = '#d6cfc2'; x.fillRect(14, 48, 36, 3);
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return t;
-}
-/** Low-rise neighbourhood (mahalla) around the master plan, seen from the windows: houses, trees, streets. */
-function buildCity() {
-  const g = new THREE.Group();
-  let seed = 11;
-  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const PW = PLAN_SIZE.w / 2 + 14, PD = PLAN_SIZE.d / 2 + 14, R = 520, cell = 15;
-  const houses: [number, number, number, number, number][] = [], trees: [number, number, number][] = [];
-  for (let gx = -R; gx < R; gx += cell) for (let gz = -R; gz < R; gz += cell) {
-    const ix = Math.round(gx / cell), iz = Math.round(gz / cell);
-    if (ix % 7 === 0 || iz % 6 === 0) continue;                    // streets
-    const cx = gx + cell / 2, cz = gz + cell / 2;
-    if (Math.abs(cx) < PW && Math.abs(cz) < PD) continue;          // the complex itself
-    if (Math.hypot(cx, cz) > R) continue;
-    if (r() < 0.12) { trees.push([cx, cz, 1 + r() * 0.6]); continue; }
-    houses.push([cx + (r() - 0.5) * 2, cz + (r() - 0.5) * 2, 8 + r() * 4.5, 8 + r() * 4.5, r() < 0.25 ? 6.5 + r() * 3 : 3.4 + r() * 2.2]);
-    if (r() < 0.55) trees.push([gx + 1.5 + r() * 2, gz + 1.5 + r() * 2, 0.7 + r() * 0.5]);
-  }
-  const body = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.95 }), houses.length);
-  const roof = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9 }), houses.length);
-  const walls = ['#e9dfcc', '#f1ece2', '#dccbb0', '#e4d7c3', '#cfc3b0'], roofs = ['#8f4f3a', '#7d6a5c', '#a3592f', '#6f7378', '#9a8f84'];
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
-  houses.forEach(([x, z, w, d, h], i) => {
-    body.setMatrixAt(i, m.compose(v.set(x, 0, z), q, sc.set(w, h, d)));
-    body.setColorAt(i, col.set(walls[i % walls.length]));
-    roof.setMatrixAt(i, m.compose(v.set(x, h, z), q, sc.set(w + 0.5, 0.35, d + 0.5)));
-    roof.setColorAt(i, col.set(roofs[(i * 7) % roofs.length]));
-  });
-  body.receiveShadow = roof.receiveShadow = true;
-  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.4, 0), new THREE.MeshStandardMaterial({ color: '#5f8a45', roughness: 0.9, flatShading: true }), trees.length);
-  trees.forEach(([x, z, k], i) => crown.setMatrixAt(i, m.compose(v.set(x, 4 * k, z), q, sc.setScalar(k))));
-  // streets around the complex
-  const road = new THREE.MeshStandardMaterial({ color: '#5a5d61', roughness: 0.95 });
-  const strip = (w: number, d: number, x: number, z: number) => { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), road); p.position.set(x, 0.03, z); p.receiveShadow = true; g.add(p); };
-  strip(PW * 2 + 20, 12, 0, -PD + 4); strip(PW * 2 + 20, 12, 0, PD - 4); strip(12, PD * 2, -PW + 4, 0); strip(12, PD * 2, PW - 4, 0);
-  g.add(body, roof, crown);
   return g;
 }

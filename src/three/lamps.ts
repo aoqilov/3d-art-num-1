@@ -1,7 +1,14 @@
 // Street lamps (8 m pole, arm over the road) and courtyard path lamps (4 m post with a lantern).
-// At night the heads glow (bloom in PRO) and each lamp lays a warm pool of light on the ground: an additive
-// radial decal, not a real light — hundreds of lamps cost a few draw calls.
+// At night the heads glow (bloom in PRO) and each lamp lights its surroundings:
+//  • Ultra (complex view): a real point light per lamp — the ground, facades and trees catch it and it fades with
+//    distance; the renderer's clustered lighting evaluates only the lamps near each pixel (LAMP_LIGHTS.real);
+//  • otherwise: an additive radial decal on the ground — hundreds of lamps cost a few draw calls.
 import * as THREE from 'three';
+
+/** set by the view whose renderer runs clustered lighting (ComplexScene, Ultra), before the lamps are built */
+export const LAMP_LIGHTS = { real: false };
+/** real lamp lights made (stats panel) */
+export const LAMP_COUNT = { n: 0 };
 
 let pool: THREE.Texture | null = null;
 function poolTexture() {
@@ -9,8 +16,8 @@ function poolTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const g = c.getContext('2d')!;
   const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.55)');
-  gr.addColorStop(0.7, 'rgba(255,255,255,.15)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  // roughly inverse-square: a bright spot under the lamp, a long soft tail
+  for (let k = 0; k <= 10; k++) { const r = k / 10; gr.addColorStop(r, `rgba(255,255,255,${(Math.max(0, 1 - r) ** 2 / (1 + 14 * r * r)).toFixed(3)})`); }
   g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
   pool = new THREE.CanvasTexture(c);
   return pool;
@@ -25,6 +32,8 @@ export class Lamps {
   private poolMeshes: THREE.Object3D[] = [];
 
   /** street: [x, z, armX, armZ] (arm direction towards the road), park: [x, z]; y0: ground level of each kind */
+  private lights: { l: THREE.PointLight; k: number }[] = [];
+  private real = LAMP_LIGHTS.real;
   constructor(street: number[][], park: number[][], yStreet = 0.15, yPark = 0.035) {
     this.heads = new THREE.MeshStandardMaterial({ color: '#d9d6cf', emissive: '#ffd59a', emissiveIntensity: 0, roughness: 0.4 });
     this.pools = new THREE.MeshBasicMaterial({ map: poolTexture(), color: '#ffcf8a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
@@ -43,7 +52,8 @@ export class Lamps {
         q.setFromAxisAngle(up, Math.atan2(-az, ax));
         m.compose(v.set(x, yStreet, z), q, one);
         poles.setMatrixAt(i, m); heads.setMatrixAt(i, m);
-        pools.setMatrixAt(i, new THREE.Matrix4().compose(v.set(x + ax * 1.75, 0.2, z + az * 1.75), new THREE.Quaternion(), new THREE.Vector3(18, 1, 18)));
+        pools.setMatrixAt(i, new THREE.Matrix4().compose(v.set(x + ax * 1.75, 0.2, z + az * 1.75), new THREE.Quaternion(), new THREE.Vector3(13, 1, 13)));
+        if (this.real) this.light(x + ax * 1.75, yStreet + 7.6, z + az * 1.75, 30, 650);
       });
       poles.castShadow = true;
       this.group.add(poles, heads, pools); this.poolMeshes.push(pools);
@@ -58,7 +68,8 @@ export class Lamps {
       park.forEach(([x, z], i) => {
         m.compose(v.set(x, yPark, z), q.identity(), one);
         posts.setMatrixAt(i, m); heads.setMatrixAt(i, m);
-        pools.setMatrixAt(i, new THREE.Matrix4().compose(v.set(x, 0.22, z), q, new THREE.Vector3(10, 1, 10)));
+        pools.setMatrixAt(i, new THREE.Matrix4().compose(v.set(x, 0.22, z), q, new THREE.Vector3(8, 1, 8)));
+        if (this.real) this.light(x, yPark + 3.75, z, 15, 130);
       });
       posts.castShadow = true;
       this.group.add(posts, heads, pools); this.poolMeshes.push(pools);
@@ -68,8 +79,16 @@ export class Lamps {
   /** 0 = day … 1 = night */
   setNight(n: number) {
     this.heads.emissiveIntensity = 6 * n;
-    this.pools.opacity = 0.6 * n;
-    this.poolMeshes.forEach((p) => (p.visible = n > 0.02));
+    this.pools.opacity = 0.42 * n;
+    this.poolMeshes.forEach((p) => (p.visible = !this.real && n > 0.02));
+    for (const { l, k } of this.lights) { l.intensity = k * n; l.visible = n > 0.02; }
+  }
+  /** a warm point light at a lamp head (candela; fades with the square of the distance, cut off at `range`) */
+  private light(x: number, y: number, z: number, range: number, cd: number) {
+    const l = new THREE.PointLight('#ffc387', 0, range, 2);
+    l.position.set(x, y, z); l.castShadow = false; l.visible = false;
+    this.lights.push({ l, k: cd }); LAMP_COUNT.n++;
+    this.group.add(l);
   }
 }
 
