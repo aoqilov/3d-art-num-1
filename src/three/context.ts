@@ -18,6 +18,10 @@ export type CtxStyle = 'real' | 'white';
 
 export const FLOOR_M = 3.0;
 const CURB_H = 0.15;
+/** trees are grouped in square tiles of this size (metres): culling per tile (the camera, every shadow cascade),
+ *  level of detail per tile. GTX 1650, courtyard view: untiled 39.5 ms a frame, 160 m tiles 32 ms; 80 m tiles
+ *  doubled the draw calls (CPU 27 ms) for no further gain */
+const TREE_TILE = 160;
 const Y_ROAD = 0.03, Y_PATH = 0.04, Y_PARK = 0.025, Y_PAINT = 0.036;
 /** street surfaces (public-pro/pro/tex, tools/road_textures.py); swap here to change the look */
 // photo textures (tools/ground/roads.mjs, Poly Haven CC0): worn asphalt, interlocking concrete pavers
@@ -280,19 +284,36 @@ export class Context {
     this.treeSpots = all;
     if (!all.length) return;
     this.group.add(this.trees);
+    const L = this.opts.lod;
     this.forest = new Forest(all);
     this.trees.add(this.forest.group);
-    // near: the GLB models; far (lod): card trees
-    const L = this.opts.lod;
+    // near: the GLB models (in tiles: a tile out of view of the camera or of a shadow cascade is skipped);
+    // far (block page, fixed lod): card trees without shadows
     const inR = (t: TreeAt) => !L || (t.x - L.x) ** 2 + (t.z - L.z) ** 2 < L.r * L.r;
     const near = all.filter(inR), far = all.filter((t) => !inR(t));
-    const glb = (this.glb = new GlbForest(near, 11));
+    const glb = (this.glb = new GlbForest(near, 11, TREE_TILE));
     glb.ready.then((ok) => {
       if (!ok || !this.forest) return;
       this.trees.remove(this.forest.group);
       if (far.length) { this.forest = new Forest(far, false); this.forest.setWhite(this.style === 'white'); this.trees.add(this.forest.group); }
       glb.setWhite(this.style === 'white'); this.trees.add(glb.group);
+      this.onChange();
     });
+  }
+  /**
+   * Complex view: per tile, the trees further than `far` metres from the camera cast no shadow (small specks at
+   * that distance, but every tree drawn into a shadow cascade). Card trees far out were tried instead: from above
+   * they read much denser than the GLB models, the district looked like a forest. Called before every frame; a
+   * band keeps a tile from flipping back and forth at the edge.
+   */
+  lod(cam: THREE.Vector3, far: number) {
+    const tiles = this.glb?.tiles;
+    if (!tiles) return;
+    for (const t of tiles.values()) {
+      const d = t.c.distanceTo(cam);
+      t.near = t.near ? d < far + 30 : d < far;
+      for (const m of t.meshes) if (m.userData.cast) m.castShadow = t.near;
+    }
   }
   glb: GlbForest | null = null;
   /** where the trees stand (complex frame) */
@@ -336,12 +357,20 @@ export class Context {
     const walls = new Buf(), roofs = new Buf();
     const wOwn: number[] = [], rOwn: number[] = [];
     const tmp = new THREE.Color();
+    // each house's centre, top and radius, for hiding a whole house between a camera and a block (block page)
+    const info = new Map<number, number[]>();
     this.data.buildings.forEach((b, bi) => {
       const r = resolve(b, ...layers);
       if (r.hidden || r.floors <= 0) return;
       const big = b.a > 600 || r.floors >= 4;
       const h = r.floors * FLOOR_M + (r.roof === 'flat' ? 0.6 : 0.2);
       const p = b.p, n = p.length / 2;
+      {
+        let cx = 0, cz = 0, rad = 0;
+        for (let k = 0; k < n; k++) { cx += p[k * 2] / n; cz += p[k * 2 + 1] / n; }
+        for (let k = 0; k < n; k++) rad = Math.max(rad, Math.hypot(p[k * 2] - cx, p[k * 2 + 1] - cz));
+        info.set(bi, [cx, h + 3, cz, rad]);
+      }
       const wall = tmp.set((big ? WALLS_BIG : WALLS_SMALL)[Math.floor(hash(b.id) * (big ? WALLS_BIG : WALLS_SMALL).length)]).clone();
       const w0 = walls.count;
       let run = 0;
@@ -384,8 +413,14 @@ export class Context {
       for (let k = r0 / 3; k < roofs.count / 3; k++) rOwn.push(bi);
     });
     for (const m of [this.houses, this.roofs]) if (m) { this.group.remove(m); m.geometry.dispose(); }
-    this.houses = new THREE.Mesh(walls.geometry(), this.wallMat);
-    this.roofs = new THREE.Mesh(roofs.geometry(), this.roofMat);
+    const withCentres = (g: THREE.BufferGeometry, own: number[]) => {
+      const a = new Float32Array(own.length * 12);
+      own.forEach((bi, t) => { const v = info.get(bi)!; for (let k = 0; k < 3; k++) a.set(v, (t * 3 + k) * 4); });
+      g.setAttribute('bc', new THREE.BufferAttribute(a, 4));     // read by the see-through mask (objectMask)
+      return g;
+    };
+    this.houses = new THREE.Mesh(withCentres(walls.geometry(), wOwn), this.wallMat);
+    this.roofs = new THREE.Mesh(withCentres(roofs.geometry(), rOwn), this.roofMat);
     for (const m of [this.houses, this.roofs]) { m.castShadow = m.receiveShadow = true; this.group.add(m); }
     this.triOwner = Int32Array.from(wOwn); this.roofOwner = Int32Array.from(rOwn);
     this.applyStyle();
@@ -534,7 +569,7 @@ export class Courtyard {
       const a = rr() * 6.283, d = 0.9 + rr() * 0.9;
       glbList.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, y: t.y, kind: 'ot', s: 0.8 + rr() * 0.5 });
     }
-    const real = (this.glb = new GlbForest(glbList, 7));
+    const real = (this.glb = new GlbForest(glbList, 7, TREE_TILE));
     real.ready.then((ok) => { if (!ok) return; this.trees.remove(this.forest.group); this.real = real; real.setWhite(this.white); this.trees.add(real.group); });
     if (c.lamps?.length) { this.lamps = new Lamps([], c.lamps, CURB_H, 0.035); this.group.add(this.lamps.group); }
   }

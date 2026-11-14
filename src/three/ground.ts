@@ -3,7 +3,7 @@
 // so the ground reads as worn yards and grassy verges. Each texture is sampled at two scales and two turns, so
 // the repeat does not show from above. `plain` = the flat colour (white model, plan view).
 import * as THREE from 'three';
-import { float, materialColor, mix, mx_fractal_noise_float, positionWorld, smoothstep, texture, uniform, vec2, vec3 } from 'three/tsl';
+import { dot, float, materialColor, mix, mx_fractal_noise_float, positionWorld, smoothstep, texture, uniform, vec2, vec3 } from 'three/tsl';
 import { nodes } from './gpu';
 
 function load(name: string) {
@@ -24,11 +24,17 @@ export function groundMaterial() {
   };
   const n = mx_fractal_noise_float(vec3(p.mul(0.018), 0), 3, 2, 0.5).mul(0.5).add(0.5);     // 0…1, patches ~50 m
   const fine = mx_fractal_noise_float(vec3(p.mul(0.11), 3.7), 2, 2, 0.5).mul(0.5).add(0.5);  // ragged edges
-  // grass on ~3/4 of the land (the owner wanted it greener: watered yards and verges, bare earth only in patches)
-  const k = smoothstep(0.14, 0.90, n.add(fine.sub(0.5).mul(0.35)));
-  const lawn = two(grass, 4).mul(vec3(0.95, 1.6, 0.62)).mul(1.35);     // light, fresh green
-  const earth = two(dirt, 5).mul(vec3(0.9, 1.04, 0.82));          // a hint of green in the bare patches too
-  const ground = mix(earth, lawn, k).mul(float(0.92));
+  // fresh young grass nearly everywhere, bare earth only in small patches (the owner: the land looked dried out).
+  // The grass photo is mostly soil between blades (average linear 0.081 / 0.049 / 0.009: brown), so tinting it gave
+  // olive; now only its light and shade is kept and it is coloured with two spring greens, mixed in patches.
+  const k = smoothstep(0.03, 0.32, n.add(fine.sub(0.5).mul(0.35)));
+  const g = two(grass, 4);
+  const detail = dot(g, vec3(0.2126, 0.7152, 0.0722)).div(0.0531).clamp(0.4, 1.8);     // 0.0531: the photo's mean luminance
+  // natural lawn greens (a first try at twice this saturation read as artificial turf from above)
+  const fresh = mix(vec3(0.058, 0.145, 0.026), vec3(0.092, 0.17, 0.034), smoothstep(0.3, 0.7, fine));
+  const lawn = fresh.mul(detail);
+  const earth = two(dirt, 5).mul(vec3(0.82, 1.0, 0.72));          // the few bare patches: earth with a green cast
+  const ground = mix(earth, lawn, k);
   nodes(m).colorNode = mix(materialColor, ground, textured);     // materialColor follows material.color
   return {
     material: m,

@@ -63,14 +63,33 @@ function library() {
   return lib;
 }
 
+/** a square tile of a tiled forest: its centre (y ≈ crown height) and its meshes */
+export type Tile = { c: THREE.Vector3; meshes: THREE.Object3D[]; near?: boolean };
+/** trees grouped by square tiles of `size` metres (one group when size is 0) */
+export function byTile<T extends { x: number; z: number }>(list: T[], size: number) {
+  const out = new Map<string, T[]>();
+  for (const t of list) {
+    const k = size ? `${Math.floor(t.x / size)},${Math.floor(t.z / size)}` : '';
+    let a = out.get(k); if (!a) out.set(k, (a = [])); a.push(t);
+  }
+  return out;
+}
+export function tileCentre(k: string, size: number) {
+  const [i, j] = k.split(',').map(Number);
+  return new THREE.Vector3((i + 0.5) * size, 5, (j + 0.5) * size);
+}
+
 export class GlbForest {
   readonly group = new THREE.Group();
   /** resolves true when the models arrived and the meshes are in the group */
   readonly ready: Promise<boolean>;
+  /** tile: square tiles of this many metres, each with its own meshes — a tile out of view (of the camera, of a
+   *  shadow cascade) is skipped; a level-of-detail switch can hide it (Context.lod) */
+  readonly tiles = new Map<string, Tile>();
   private mats: THREE.MeshStandardMaterial[] = [];
   private white = false;
   private mask: [unknown, unknown] | null = null;
-  constructor(list: GlbAt[], seed = 5) {
+  constructor(list: GlbAt[], seed = 5, tile = 0) {
     this.group.name = 'trees';
     this.ready = library().then((L) => {
       if (!L) return false;
@@ -86,18 +105,37 @@ export class GlbForest {
           const mat = v.mat.clone();
           if (cat !== 'ot') nodes(mat).emissiveNode = uplight;
           this.mats.push(mat);
-          const inst = new THREE.InstancedMesh(v.geo, mat, part.length);
-          part.forEach((t, i) => {
+          // turn, size and shade first, in the list's order (the same trees as before the tiles came)
+          const bb = v.geo.boundingBox!, half = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+          const placed = part.map((t) => {
             const k = KIND[t.kind], s = ((t.s ?? 1) * k.h * (0.87 + rnd() * 0.26)) / v.h;
             q.setFromAxisAngle(p.set(0, 1, 0), rnd() * Math.PI * 2);
-            m.compose(p.set(t.x, t.y ?? 0, t.z), q, sc.set(s * k.xz, s, s * k.xz));
-            inst.setMatrixAt(i, m);
-            inst.setColorAt(i, col.setScalar(0.98 + rnd() * 0.24));          // each tree a little lighter or darker
+            return { x: t.x, z: t.z, m: m.compose(p.set(t.x, t.y ?? 0, t.z), q, sc.set(s * k.xz, s, s * k.xz)).clone(), shade: 0.98 + rnd() * 0.24,
+              top: (t.y ?? 0) + s * v.h, r: half * s * k.xz };
           });
-          inst.castShadow = cat !== 'ot'; inst.receiveShadow = true;
-          inst.raycast = () => {};
-          inst.computeBoundingSphere();
-          this.group.add(inst);
+          for (const [key, ts] of byTile(placed, tile)) {
+            // own geometry object (sharing the buffers) for the per-tree centre: the block page hides a whole tree
+            // standing between the camera and the block (surroundings.ts objectMask)
+            const geo = new THREE.BufferGeometry();
+            for (const [n, a] of Object.entries(v.geo.attributes)) geo.setAttribute(n, a);
+            geo.setIndex(v.geo.index); geo.groups = v.geo.groups;
+            geo.boundingBox = v.geo.boundingBox; geo.boundingSphere = v.geo.boundingSphere;
+            geo.setAttribute('bc', new THREE.InstancedBufferAttribute(Float32Array.from(ts.flatMap((t) => [t.x, t.top, t.z, t.r])), 4));
+            const inst = new THREE.InstancedMesh(geo, mat, ts.length);
+            ts.forEach((t, i) => {
+              inst.setMatrixAt(i, t.m);
+              inst.setColorAt(i, col.setScalar(t.shade));          // each tree a little lighter or darker
+            });
+            inst.castShadow = inst.userData.cast = cat !== 'ot'; inst.receiveShadow = true;
+            inst.raycast = () => {};
+            inst.computeBoundingSphere();
+            this.group.add(inst);
+            if (tile) {
+              let T = this.tiles.get(key);
+              if (!T) this.tiles.set(key, (T = { c: tileCentre(key, tile), meshes: [] }));
+              T.meshes.push(inst);
+            }
+          }
         });
       }
       this.setWhite(this.white);

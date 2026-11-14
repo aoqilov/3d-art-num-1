@@ -8,11 +8,11 @@ import { loadBlockGlb } from './blockGlb';
 const BLOCK_GLB = !location.search.includes('noglb');      // ?noglb: the drawn geometry (before / after comparisons)
 import { realTreesOk } from './trees';
 import { PRO, type ProRenderer } from '../block/BlockScene';
-import { skyTexture } from '../pro/sky';
+import { SkyMap } from '../pro/sky';
 import { SUN_DAY, daylight, sunDir } from './sun';
 import { FACADE_NIGHT, facadeGlow } from '../block/nightLights';
 import { BAKE_AO, enableBakedAO, materials } from '../block/materials';
-import { createRenderer, orbitDamping, type Renderer } from './gpu';
+import { createRenderer, keepAboveGround, orbitDamping, type Renderer } from './gpu';
 import { DEFAULT_HOUR, HourGlide } from './timeStops';
 import { CSMShadowNode } from 'three/examples/jsm/csm/CSMShadowNode.js';
 import { ClusteredLighting } from 'three/examples/jsm/lighting/ClusteredLighting.js';
@@ -163,6 +163,27 @@ export class ComplexScene {
   private hovered: number | null = null;
   private floor: number | null = null;
   private camGoal: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
+  // draw on demand: only while something changes (camera, time of day, the UI, a load); the Ultra pipeline adds its
+  // own frames until TRAA has settled. Otherwise the GPU idles.
+  private dirty = true;
+  private proWants = false;
+  /** draw every frame until this time (ms): the start-up, any input on the page, loads */
+  private awake = performance.now() + 10000;
+  private wake(ms = 1500) { this.dirty = true; this.awake = Math.max(this.awake, performance.now() + ms); }
+  /** any input on the page may change the scene through the UI (React → setSelected, setFloor …) */
+  private onInput = () => this.wake();
+  private static INPUT = ['pointerdown', 'pointerup', 'keydown', 'wheel', 'input', 'change'] as const;
+  /** district trees further than this from the camera (per 160 m tile) cast no shadow (Context.lod) */
+  treeShadowR = 260;
+  // lighter image while the camera moves: when a full-resolution frame takes longer than ~30 ms (below ~33 FPS),
+  // the frames of a movement are drawn at 0.75 of the resolution; standing still, full resolution again (TRAA
+  // sharpens it). Never on a computer fast enough.
+  private baseDpr = Math.min(window.devicePixelRatio, 2);
+  private moveT = 0;
+  private lastDraw = 0;
+  /** smoothed full-resolution frame time (ms) */
+  private fullMs = 0;
+  private lowRes = false;
   private ro: ResizeObserver;
   private down = { x: 0, y: 0 };
   private hoverPending = false;
@@ -190,7 +211,8 @@ export class ComplexScene {
   /** the hour glides between the time stops (timeStops.ts) */
   private glide = new HourGlide(DEFAULT_HOUR);
   private pro: ProRenderer | null = null;
-  private skyTex: THREE.DataTexture | null = null;
+  /** the light build's sky: one texture updated in place (sky.ts SkyMap) */
+  private sky: SkyMap | null = null;
   private nightF = 0;
   private nightMats: THREE.MeshStandardMaterial[] = [];
   private glowMats: [THREE.MeshStandardMaterial, number][] = [];
@@ -207,7 +229,7 @@ export class ComplexScene {
     // Ultra: every street and path lamp is a real light; clustered (Forward+) lighting keeps ~600 of them cheap
     LAMP_LIGHTS.real = !!PRO.create;
     if (PRO.create) (this.renderer as unknown as { lighting: unknown }).lighting = new ClusteredLighting(1024);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this.baseDpr);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -227,6 +249,11 @@ export class ComplexScene {
     this.controls.target.set(0, 10, 10);
 
     this.controls.addEventListener('start', () => (this.camGoal = null));
+    this.controls.addEventListener('change', () => { this.dirty = true; this.moveT = performance.now(); });
+    ComplexScene.INPUT.forEach((t) => addEventListener(t, this.onInput, { capture: true, passive: true }));
+    // textures and models load through the default manager; the scene changes a little after each file (parsing,
+    // instancing), so keep drawing a while after the last one
+    THREE.DefaultLoadingManager.onStart = THREE.DefaultLoadingManager.onProgress = () => this.wake(8000);
     this.addLights();
     this.addGround();
     BLOCKS.forEach((b) => this.addBlock(b));
@@ -236,13 +263,14 @@ export class ComplexScene {
       // PRO build: HDR sky, PBR textures, AO, bloom
       this.pro = PRO.create({
         renderer: this.renderer, scene: this.scene, camera: this.camera, sun: this.sun, hemi: this.hemi,
-        isCut: () => true, redraw: () => {}, emit: () => {}, overlay: this.overlay, clouds: this.clouds,
+        isCut: () => true, redraw: () => (this.dirty = true), emit: () => {}, overlay: this.overlay, clouds: this.clouds,
         hidden: () => [this.floorBand].filter(Boolean) as THREE.Object3D[],
       });
       // Ultra: cascaded shadows — sharp near the camera, still covering the whole district far away
       if (!location.search.includes('nocsm')) {        // ?nocsm: one plain shadow map (comparison, debugging)
         this.sun.shadow.mapSize.set(2048, 2048);
-        const csm = new CSMShadowNode(this.sun, { cascades: 4, maxFar: 900, mode: 'practical', lightMargin: 300 });
+        const n = Number(new URLSearchParams(location.search).get('csm')) || 4;     // ?csm=3: fewer cascades (comparison)
+        const csm = new CSMShadowNode(this.sun, { cascades: n, maxFar: 900, mode: 'practical', lightMargin: 300 });
         csm.fade = true;
         (this.sun.shadow as unknown as { shadowNode: unknown }).shadowNode = csm;
       }
@@ -440,6 +468,7 @@ export class ComplexScene {
       inst.material = ms;
       if (g.ao) BAKE_AO.value = g.ao;
       inst.computeBoundingSphere();
+      this.wake(3000);
     });
   }
 
@@ -452,7 +481,7 @@ export class ComplexScene {
   /** Local time on 21 June: sun from the real solar position, sky, ambient light, warm low sun.
    *  moving: while gliding the light build draws its sky at a lower resolution (it is computed on the CPU). */
   private applyHour(h: number, moving = false) {
-    this.hour = h;
+    this.hour = h; this.dirty = true;
     const dir = sunDir(SUN_DAY, ((h % 24) + 24) % 24), { el, nightF, dusk, dayK } = daylight(dir);
     this.sun.position.copy(dir).multiplyScalar(420);
     const low = THREE.MathUtils.clamp(el / 25, 0, 1);
@@ -462,13 +491,13 @@ export class ComplexScene {
     this.hemi.color.set('#dfe9f5').lerp(new THREE.Color('#3d4a70'), nightF);
     this.nightF = nightF; this.applyNight();
     this.clouds.setSun(dir, { dayK, dusk, nightF });
-    if (this.pro) { this.pro.hour({ sunDir: dir, nightF, dusk, dayK, hour: h }); return; }
-    const sky = moving ? skyTexture(128, 64, { sun: dir, night: nightF, gain: 0.55 }) : skyTexture(512, 256, { sun: dir, night: nightF, gain: 0.55 });
-    this.skyTex?.dispose(); this.skyTex = sky.texture;
+    if (this.pro) { this.pro.hour({ sunDir: dir, nightF, dusk, dayK, hour: h, moving }); return; }
+    const sky = (this.sky ??= new SkyMap());
+    const hz = sky.update({ sun: dir, night: nightF, gain: 0.55 }, moving);
     this.scene.background = sky.texture;
+    (this.scene as unknown as { backgroundNode: unknown }).backgroundNode = sky.backgroundNode;   // see SkyMap.backgroundNode
     this.scene.environment = sky.texture;                  // the renderer prefilters it (PMREM) by itself
     this.scene.environmentIntensity = 0.1 + 0.42 * dayK + 0.12 * nightF;
-    const hz = sky.horizon;
     (this.scene.fog as THREE.Fog).color.setRGB(Math.min(1, hz[0]), Math.min(1, hz[1]), Math.min(1, hz[2]), THREE.LinearSRGBColorSpace);
     this.renderer.toneMappingExposure = 1.0 + 0.3 * nightF;
   }
@@ -499,7 +528,9 @@ export class ComplexScene {
     const r = await loadContext();
     if (!r) { this.cb.onContext?.(null); return; }
     this.fileOverrides = r.file;
-    this.ctx = new Context(r.data, () => {});
+    this.ctx = new Context(r.data, () => this.wake());
+    this.wake(8000);
+    void this.ctx.glb?.ready.then(() => this.wake(3000));
     this.ctx.build(this.fileOverrides, this.edits);
     this.planSite = siteGeometry(r.data.site, PLAN_SIZE.w, PLAN_SIZE.d);
     this.scene.add(this.ctx.group);
@@ -510,6 +541,8 @@ export class ComplexScene {
     const cut = court ? layoutCourtyard(court, yd, this.instMats) : [];
     if (court) { this.court = new Courtyard(court, r.data.site, cut); this.scene.add(this.court.group); }
     if (yd && this.court) { this.yard = new Yard(yd); this.court.group.add(this.yard.group); }
+    void this.court?.glb?.ready.then(() => this.wake(3000));
+    this.wake(8000);
     this.syncPlan();
     this.applyNight();
     this.cb.onContext?.(r.data.buildings.length);
@@ -521,6 +554,7 @@ export class ComplexScene {
       this.scene.add(this.outer.group);
       const fog = this.scene.fog as THREE.Fog; fog.near = 600; fog.far = 2600;
       this.controls.maxDistance = this.outerEdit ? 2200 : 900;
+      this.wake(3000);
     }
   }
   /** show the neighbourhood; the plan image is then clipped to the site so it does not cover the streets */
@@ -704,12 +738,14 @@ export class ComplexScene {
 
   dispose() {
     cancelAnimationFrame(this.raf);
+    ComplexScene.INPUT.forEach((t) => removeEventListener(t, this.onInput, { capture: true }));
+    THREE.DefaultLoadingManager.onStart = THREE.DefaultLoadingManager.onProgress = () => {};
     this.boxEl?.remove();
     this.ro.disconnect();
     this.controls.dispose();
     this.prog?.dispose(); this.clouds.dispose();
     LAMP_LIGHTS.real = false;
-    this.pro?.dispose(); this.skyTex?.dispose();
+    this.pro?.dispose(); this.sky?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -725,6 +761,7 @@ export class ComplexScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.pro?.resize(w, h);
+    this.wake();
   }
 
   private outerPick(clientX: number, clientY: number) {
@@ -799,7 +836,7 @@ export class ComplexScene {
       requestAnimationFrame(() => {
         this.hoverPending = false;
         const id = this.outerPick(this.lastPtr.x, this.lastPtr.y);
-        this.outer?.setHover(id); this.renderer.domElement.style.cursor = id >= 0 ? 'pointer' : 'grab';
+        this.outer?.setHover(id); this.renderer.domElement.style.cursor = id >= 0 ? 'pointer' : 'grab'; this.dirty = true;
       });
       return;
     }
@@ -824,7 +861,7 @@ export class ComplexScene {
   };
   private setHover(id: number | null, x: number, y: number) {
     if (id !== this.hovered) {
-      this.hovered = id;
+      this.hovered = id; this.dirty = true;
       this.renderer.domElement.style.cursor = id ? 'pointer' : 'grab';
       this.blocks.forEach((b) => {
         const on = b.def.id === id;
@@ -845,14 +882,25 @@ export class ComplexScene {
     }
     this.controls.dampingFactor = orbitDamping(dt);
     this.controls.update();
-    if (this.progOn) this.prog?.tick(dt);
+    if (keepAboveGround(this.camera.position, this.controls.target, 2)) this.dirty = true;
+    if (this.progOn) { this.prog?.tick(dt); this.dirty = true; }        // the cranes turn
     if (this.glide.tick(dt)) this.applyHour(this.glide.hour, this.glide.moving);
     if (!this.ready) return;
+    // nothing changed and the Ultra pipeline has settled: no frame (the GPU idles)
+    const changed = this.dirty || !!this.camGoal || now < this.awake;
+    this.dirty = false;
+    if (!changed && !this.proWants) return;
+    const moving = !!this.camGoal || now - this.moveT < 300;
+    const low = moving && this.fullMs > 30;
+    if (low !== this.lowRes) { this.lowRes = low; this.renderer.setPixelRatio(this.baseDpr * (low ? 0.75 : 1)); this.resize(); }
+    if (!this.lowRes && this.lastDraw && now - this.lastDraw < 250) this.fullMs = this.fullMs ? this.fullMs * 0.9 + (now - this.lastDraw) * 0.1 : now - this.lastDraw;
+    this.lastDraw = now;
+    this.ctx?.lod(this.camera.position, this.treeShadowR);
     renderStats.view = 'kompleks';
     renderStats.effects = this.pro ? ['SSGI', 'TRAA', 'Bloom', 'CSM soyalar', 'Klasterli chiroqlar', 'AgX/Neutral tonemap'] : ['Oddiy soyalar', 'MSAA'];
     renderStats.lights = this.pro ? LAMP_COUNT.n : 0;
     renderStats.begin(this.renderer);
-    if (this.pro) this.pro.frame(true);                 // the labels are part of the Ultra pipeline
+    if (this.pro) this.proWants = this.pro.frame(changed);   // the labels are part of the Ultra pipeline
     else {
       this.renderer.render(this.scene, this.camera);
       this.renderer.autoClear = false;

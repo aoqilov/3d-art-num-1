@@ -1,0 +1,8 @@
+{
+  "_": "extra cameras for Unreal (ue_cameras.py) and the web app pictures (webshot.mjs): web app metres, Y up; vfov in degrees",
+  "hovli_past": { "pos": [40, 1.7, 55], "target": [-15, 14, 98], "vfov": 50 },
+  "kocha": { "pos": [-45, 1.7, -133], "target": [15, 24, -85], "vfov": 55 },
+  "havo": { "pos": [260, 230, -180], "target": [5, 0, 20], "vfov": 32 },
+  "blok_yaqin": { "pos": [-22, 10, -122], "target": [4, 20, -94], "vfov": 50 },
+  "balkon": { "pos": [-22, 10, -122], "target": [6, 16, -93], "vfov": 9 }
+}

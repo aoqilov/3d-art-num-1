@@ -15,7 +15,7 @@ import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import type { ProInternals, ProRenderer, ProState } from '../block/BlockScene';
 import { applyProMaterials, metricUVs } from './proMaterials';
 import { createAtmosphere } from './atmosphere';
-import { skyTexture } from './sky';
+import { SkyMap } from './sky';
 import { lookAt } from '../three/timeStops';
 
 // node graphs written loosely typed: the TSL typings get in the way of plain shader maths
@@ -75,7 +75,7 @@ export function createPro(i: ProInternals): ProRenderer {
     (scene as unknown as { environmentNode: unknown }).environmentNode = atm.environment();
     if (scene.fog instanceof THREE.Fog) { scene.fog.near = 1e7; scene.fog.far = 1e7 + 1; }
   }
-  let sky: THREE.DataTexture | null = null;
+  const sky = atm ? null : new SkyMap();
 
   // ---------- pipeline
   const pipeline = new RenderPipeline(renderer);
@@ -104,6 +104,8 @@ export function createPro(i: ProInternals): ProRenderer {
   const normal = sample((uv: unknown) => unpackRGBToNormal(normalTex.sample(uv).rgb));
 
   const gi = ssgi(color, depth, normal, camera);
+  // traced at half resolution: −17…19 ms a frame on a GTX 1650 (about half the cost), the indirect light is soft anyway
+  gi.resolutionScale = 0.5;
   gi.sliceCount.value = 2; gi.stepCount.value = 12;
   gi.radius.value = 6; gi.giIntensity.value = 4; gi.aoIntensity.value = 1.2; gi.thickness.value = 0.6;
   const refl = ssr(color, depth, normal, { metalnessNode: diffuse.a, roughnessNode: normalTex.a, camera });
@@ -159,6 +161,10 @@ export function createPro(i: ProInternals): ProRenderer {
       c = vec4(c.rgb.add(nightDome.mul(nightSky).mul(isSky)), 1);
       if (clouds && fx.clouds) { const cl = clouds.getTextureNode(); c = vec4(T.mix(c.rgb, cl.rgb.mul(cloudGain), cl.a.mul(isSky)), 1); }
     }
+    // no NaN / infinity past this point: a single bad texel (seen on the block page, the aerial perspective with
+    // AO / GI) was blurred over the frame by the bloom and kept for good by the TRAA history — the whole view went
+    // black and stayed black. max / min take the number when the other operand is NaN (D3D12: IEEE maxNum / minNum)
+    c = vec4(c.rgb.max(0).min(6e4), 1);
     glow?.dispose(); glow = null;
     if (state.bloom) { glow = bloom(c, glowK.strength, 0.6, glowK.threshold); c = c.add(glow); }
     traa?.dispose();
@@ -178,6 +184,8 @@ export function createPro(i: ProInternals): ProRenderer {
   };
 
   let settle = SETTLE;
+  // the atmosphere's tables arrive after the first frames: draw again when they do (else the view stays black)
+  atm?.onTables(() => { settle = SETTLE; i.redraw(); });
   const self: ProRenderer = {
     frame(changed) {
       if (changed) settle = SETTLE;
@@ -187,7 +195,7 @@ export function createPro(i: ProInternals): ProRenderer {
       pipeline.render();
       return settle > 0;
     },
-    hour({ sunDir, nightF, dayK, hour }) {
+    hour({ sunDir, nightF, dayK, hour, moving }) {
       const L = lookAt(hour);
       const inside = i.interior?.() ?? false;
       gSat.value = L.sat; gCon.value = L.contrast; gWarm.value = L.warmth; gLift.value = L.lift;
@@ -201,14 +209,14 @@ export function createPro(i: ProInternals): ProRenderer {
         sun.intensity = 1; sun.color.set('#ffffff');
         hemi.intensity = 0.02 + 0.3 * nightF;      // the building lights itself; the fill only keeps the ground readable
         nightSky.value = 2.2 * nightF;
-      } else {
-        // classic: the CPU sky as background and image-based light (prefiltered by the renderer), fog at its horizon
-        const tex = skyTexture(512, 256, { sun: sunDir, night: nightF, gain: 0.55 });
-        sky?.dispose(); sky = tex.texture;
-        scene.environment = sky; scene.background = sky;
+      } else if (sky) {
+        // classic: the CPU sky as background and image-based light (prefiltered by the renderer), fog at its horizon;
+        // one texture updated in place (a new one each frame of a glide recompiled the materials)
+        const hz = sky.update({ sun: sunDir, night: nightF, gain: 0.55 }, moving);
+        scene.environment = sky.texture; scene.background = sky.texture;
+        (scene as unknown as { backgroundNode: unknown }).backgroundNode = sky.backgroundNode;   // see SkyMap.backgroundNode
         scene.environmentIntensity = 0.05 + 0.75 * dayK + 0.25 * nightF;
         hemi.intensity = 0.04 + 0.06 * dayK + 0.7 * nightF;      // moon and city glow keep the night readable
-        const hz = tex.horizon;
         (scene.fog as THREE.Fog).color.setRGB(Math.min(1, hz[0]), Math.min(1, hz[1]), Math.min(1, hz[2]), THREE.LinearSRGBColorSpace);
         renderer.toneMappingExposure = 1.0 + 0.35 * nightF;
         sun.intensity *= 1.7;
@@ -228,7 +236,7 @@ export function createPro(i: ProInternals): ProRenderer {
       build(); settle = SETTLE;
       i.redraw(); emit();
     },
-    dispose() { pipeline.dispose(); sky?.dispose(); },
+    dispose() { pipeline.dispose(); sky?.dispose(); },   // the shared sky map stays with its scene
   };
   emit();
   return self;

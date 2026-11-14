@@ -31,6 +31,7 @@ const P: Record<string, string> = {
   down: 'M6 9l6 6 6-6',
   left: 'M15 6l-6 6 6 6',
   right: 'M9 6l6 6-6 6',
+  sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
 };
 export function Icon({ n, size = 20 }: { n: string; size?: number }) {
   return (

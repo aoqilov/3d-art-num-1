@@ -68,3 +68,15 @@ export const nodes = (m: THREE.Material) => m as unknown as Record<string, unkno
  * frame rate: the camera stops where it was put.
  */
 export const orbitDamping = (dt: number) => 1 - Math.exp(-Math.max(dt, 1 / 240) / 0.06);
+
+/**
+ * The orbit camera never goes under the land (the ground is y = 0 in both views): the orbit target stays on or above
+ * it — panning down dragged it below and the camera followed — and the camera is lifted along with it, so the view
+ * keeps its angle; the camera itself stays at least `eye` metres up. True when something was moved.
+ */
+export function keepAboveGround(cam: THREE.Vector3, target: THREE.Vector3, eye: number) {
+  let moved = false;
+  if (target.y < 0) { cam.y -= target.y; target.y = 0; moved = true; }
+  if (cam.y < eye) { cam.y = eye; moved = true; }
+  return moved;
+}

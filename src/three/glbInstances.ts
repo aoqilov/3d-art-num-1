@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { byTile } from './glbTrees';
 
 type Part = { geo: THREE.BufferGeometry; mat: THREE.Material };
 const cache = new Map<string, Promise<Part[][] | null>>();
@@ -40,6 +41,10 @@ function load(name: string) {
 
 export type GlbItem = { m: THREE.Matrix4; v?: number; tint?: number };
 
+/** shadow casters come in square tiles of this size (metres), each its own meshes: a shadow cascade skips the tiles
+ *  outside it (one mesh over the whole courtyard was drawn into every cascade) */
+const TILE = 160;
+
 export function glbInstances(name: string, items: GlbItem[], o: { shadow?: boolean } = {}) {
   const group = new THREE.Group(); group.name = name;
   const ready = load(name).then((V) => {
@@ -48,10 +53,12 @@ export function glbInstances(name: string, items: GlbItem[], o: { shadow?: boole
     V.forEach((parts, vi) => {
       const mine = items.filter((it, i) => (it.v ?? i) % V.length === vi);
       if (!mine.length) return;
-      for (const { geo, mat } of parts) {
-        const inst = new THREE.InstancedMesh(geo, mat, mine.length);
-        mine.forEach((it, i) => { inst.setMatrixAt(i, it.m); if (it.tint !== undefined) inst.setColorAt(i, col.setScalar(it.tint)); });
-        inst.castShadow = o.shadow ?? true; inst.receiveShadow = true;
+      const shadow = o.shadow ?? true;
+      const tiles = byTile(mine.map((it) => ({ it, x: it.m.elements[12], z: it.m.elements[14] })), shadow ? TILE : 0);
+      for (const { geo, mat } of parts) for (const ts of tiles.values()) {
+        const inst = new THREE.InstancedMesh(geo, mat, ts.length);
+        ts.forEach(({ it }, i) => { inst.setMatrixAt(i, it.m); if (it.tint !== undefined) inst.setColorAt(i, col.setScalar(it.tint)); });
+        inst.castShadow = shadow; inst.receiveShadow = true;
         inst.raycast = () => {};
         inst.computeBoundingSphere();
         group.add(inst);

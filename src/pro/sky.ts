@@ -2,6 +2,7 @@
 // so the same picture serves as background and image-based lighting (PMREM).
 // The sun disc itself is left out: the sun is a DirectionalLight with real shadows.
 import * as THREE from 'three';
+import { equirectUV, texture } from 'three/tsl';
 
 const totalRayleigh = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5];
 const MieConst = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
@@ -77,6 +78,62 @@ export function skyPixels(W: number, H: number, p: SkyParams) {
     }
   }
   return { data: out, horizon: hz };
+}
+
+/**
+ * One sky map for the whole session, updated in place. A new texture for every hour of a time glide made the renderer
+ * rebuild the environment lighting and recompile the materials on every frame (~400 ms a frame, GTX 1650).
+ * fast: a quarter-resolution sky stretched over the map (16× less CPU), for the frames of a glide.
+ */
+export class SkyMap {
+  readonly texture: THREE.DataTexture;
+  /**
+   * The background, sampled straight from the map: as `scene.background` the renderer turns an equirect texture into
+   * a cube map once per texture object and keeps it, so this map's new pixels never reached the sky (23:00 showed
+   * the 13:00 sky above the night city). Set it as `scene.backgroundNode`.
+   */
+  readonly backgroundNode: ReturnType<typeof texture>;
+  constructor(readonly W = 512, readonly H = 256) {
+    const t = (this.texture = new THREE.DataTexture(new Float32Array(W * H * 4), W, H, THREE.RGBAFormat, THREE.FloatType));
+    t.mapping = THREE.EquirectangularReflectionMapping;
+    t.colorSpace = THREE.LinearSRGBColorSpace;
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    t.flipY = false;
+    this.backgroundNode = texture(t, equirectUV());
+  }
+  /** returns the horizon colour (for the fog) */
+  update(p: SkyParams, fast = false) {
+    const { W, H } = this, dst = this.texture.image.data as Float32Array;
+    if (!fast) {
+      const { data, horizon } = skyPixels(W, H, p);
+      dst.set(data);
+      this.changed();
+      return horizon;
+    }
+    const w = W / 4, h = H / 4, { data, horizon } = skyPixels(w, h, p);
+    // bilinear, wrapping around in x (equirect), clamped in y
+    for (let y = 0; y < H; y++) {
+      const sy = Math.min(h - 1, Math.max(0, (y + 0.5) / 4 - 0.5)), y0 = Math.floor(sy), y1 = Math.min(h - 1, y0 + 1), fy = sy - y0;
+      for (let x = 0; x < W; x++) {
+        const sx = (x + 0.5) / 4 - 0.5 + w, x0 = Math.floor(sx), fx = sx - x0;
+        const a = ((y0 * w) + (x0 % w)) * 4, b = ((y0 * w) + ((x0 + 1) % w)) * 4, c = ((y1 * w) + (x0 % w)) * 4, d = ((y1 * w) + ((x0 + 1) % w)) * 4;
+        const o = (y * W + x) * 4;
+        for (let k = 0; k < 4; k++) {
+          const top = data[a + k] + (data[b + k] - data[a + k]) * fx, bot = data[c + k] + (data[d + k] - data[c + k]) * fx;
+          dst[o + k] = top + (bot - top) * fy;
+        }
+      }
+    }
+    this.texture.needsUpdate = true;          // the background only: the image-based light follows at the end
+    return horizon;
+  }
+  /**
+   * new pixels: upload them and prefilter the image-based light again (into the same PMREM target, no recompile).
+   * The prefiltering is costly in the Ultra pipeline (measured 150…800 ms a frame), so a glide's frames skip it.
+   */
+  private changed() { this.texture.needsUpdate = true; this.texture.needsPMREMUpdate = true; }
+  dispose() { this.texture.dispose(); }
 }
 
 export function skyTexture(W: number, H: number, p: SkyParams) {

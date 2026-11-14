@@ -1,7 +1,7 @@
 // The seven times of day the owner chose (21 June, Tashkent), offered as seven hour buttons; each one has its own
 // look in the Ultra renderer (exposure, grading, clouds, bloom), and moving between them glides over ~1.5 s.
 export const STOPS = [4, 7, 10, 13, 16, 19, 23] as const;
-export const DEFAULT_HOUR = 13;
+export const DEFAULT_HOUR = 16;          // the owner: open in the afternoon (13 at first, then 19 — too dark)
 export const STOP_NAMES: Record<number, string> = {
   4: 'Tong oldi', 7: 'Erta tong', 10: 'Ertalab', 13: 'Tush', 16: 'Tushdan keyin', 19: 'Oltin soat', 23: 'Tun',
 };

@@ -1,9 +1,10 @@
-// Left-side panel: how the renderer is doing (stats.ts). Folds to a small FPS pill; the state is kept in this browser.
+// Left-side panel: how the renderer is doing (stats.ts). Folds away into the left edge, where a tab (with the frame
+// rate) opens it again — as the right-hand panel folds to the right; closed at first, the state kept in this browser.
 import { useEffect, useRef, useState } from 'react';
 import { renderStats as S } from './stats';
 import { getMode } from '../mode';
 
-const KEY = 'om-stats';
+const KEY = 'om-render';          // new key: the panel starts closed also where the old one ('om-stats') was left open
 type Gpu = { name: string } | null;
 
 let gpuInfo: Promise<Gpu> | null = null;
@@ -22,7 +23,7 @@ const mb = (b: number) => (b / 1048576).toFixed(0) + ' MB';
 const num = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + ' mln' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' ming' : String(n));
 
 export default function RenderStats({ place = 'top' }: { place?: 'top' | 'bottom' }) {
-  const [open, setOpen] = useState(() => { try { return localStorage.getItem(KEY) !== '0'; } catch { return true; } });
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } });
   const [, tick] = useState(0);
   const [gpu, setGpu] = useState<Gpu>(null);
   const graph = useRef<HTMLCanvasElement>(null);
@@ -54,10 +55,10 @@ export default function RenderStats({ place = 'top' }: { place?: 'top' | 'bottom
     });
   });
 
-  if (!open) return <button className={`rstats-pill ${place} ${tone}`} onClick={() => setOpen(true)} title="Render ko'rsatkichlari">{idle ? '—' : fps.toFixed(0)} FPS</button>;
   return (
-    <div className={`rstats ${place}`}>
-      <div className="rs-head"><b>Render</b><span>{S.view}</span><button onClick={() => setOpen(false)} title="Yig'ish">–</button></div>
+    <div className={`rs-dock rs-${place}${open ? '' : ' shut'}`}>
+    <div className="rstats" aria-hidden={!open} inert={!open}>
+      <div className="rs-head"><b>Render</b><span>{S.view}</span></div>
       <div className="rs-fps"><b className={tone}>{idle ? '—' : fps.toFixed(0)}</b><span>FPS{idle ? ' · kutish (sahna o\'zgarmasa chizilmaydi)' : ` · ${frameMs.toFixed(1)} ms kadr`}</span></div>
       <canvas ref={graph} width={232} height={38} />
       <table><tbody>
@@ -74,6 +75,11 @@ export default function RenderStats({ place = 'top' }: { place?: 'top' | 'bottom
       </tbody></table>
       {S.effects.length ? <div className="rs-fx">{S.effects.map((e) => <i key={e}>{e}</i>)}</div> : null}
       <div className="rs-gpu">{gpu?.name ?? 'Videokarta nomi brauzer tomonidan yashirilgan'}</div>
+    </div>
+    <button className="rs-tab" onClick={() => setOpen(!open)} aria-expanded={open} title={open ? 'Render panelini yopish' : 'Render ko‘rsatkichlari'}>
+      <span aria-hidden>{open ? '‹' : '›'}</span>
+      {!open && <><b>Render</b><em className={tone}>{idle ? '—' : fps.toFixed(0)}</em></>}
+    </button>
     </div>
   );
 }

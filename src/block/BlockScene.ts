@@ -21,7 +21,7 @@ import { EntryDoors } from './entryDoors';
 import { Lighting } from './lighting';
 import type { RoomKind } from './plan';
 import { PMREMGenerator } from 'three/webgpu';
-import { createRenderer, orbitDamping, type Renderer } from '../three/gpu';
+import { createRenderer, keepAboveGround, orbitDamping, type Renderer } from '../three/gpu';
 import { DEFAULT_HOUR, HourGlide } from '../three/timeStops';
 import { TREE_NIGHT } from '../three/glbTrees';
 import { BlockSurroundings } from './surroundings';
@@ -51,7 +51,8 @@ export type EnergyPick = { storey: number; index: number } | { mat: string; stor
 export type ProState = { pt: boolean; samples: number; target: number; busy: boolean; canPT: boolean; ao: boolean; bloom: boolean; ready: boolean };
 export interface ProRenderer {
   frame(changed: boolean): boolean;                       // draw; true = keep calling (progressive render)
-  hour(i: { sunDir: THREE.Vector3; nightF: number; dusk: number; dayK: number; hour: number }): void;
+  /** moving: a frame of a time glide (the classic sky is then computed at a lower resolution) */
+  hour(i: { sunDir: THREE.Vector3; nightF: number; dusk: number; dayK: number; hour: number; moving?: boolean }): void;
   resize(w: number, h: number): void;
   furniture(g: THREE.Object3D): void;
   set(o: Partial<{ pt: boolean; ao: boolean; bloom: boolean }>): void;
@@ -121,6 +122,13 @@ export class BlockScene {
   private down = { x: 0, y: 0 };
   private goal: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
   private dirty = true;
+  /**
+   * Draws only when something changed, but keeps drawing until this time: the first frames came before the
+   * atmosphere, the materials and the models were ready, and the Ultra view stayed on a black frame until the
+   * mouse moved. 6 s after opening, a few seconds after each load (the atmosphere's tables: ProRenderer).
+   */
+  private awake = 0;
+  private wake(ms: number) { this.dirty = true; this.awake = Math.max(this.awake, performance.now() + ms); }
 
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
@@ -193,8 +201,9 @@ export class BlockScene {
     this.detailed = TYPE4.includes(blockId);
     this.renderer = createRenderer({ antialias: !PRO.create });   // Ultra: TRAA instead of MSAA
     // Ultra: every street and path lamp of the surroundings is a real light; clustered (Forward+) lighting keeps them cheap
-    LAMP_LIGHTS.real = !!PRO.create; LAMP_COUNT.n = 0;
-    if (PRO.create) (this.renderer as unknown as { lighting: unknown }).lighting = new ClusteredLighting(1024);
+    const lamps = !!PRO.create && !location.search.includes('nolamps');     // ?nolamps: without them (comparison)
+    LAMP_LIGHTS.real = lamps; LAMP_COUNT.n = 0;
+    if (lamps) (this.renderer as unknown as { lighting: unknown }).lighting = new ClusteredLighting(1024);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -209,8 +218,9 @@ export class BlockScene {
       const room = new PMREMGenerator(this.renderer).fromScene(new RoomEnvironment(), 0.04).texture;
       mirror.envMap = room; mirror.needsUpdate = true;
       if (!this.pro) this.scene.environment = room;        // PRO lights the scene with its sky instead
-      this.ready = true; this.dirty = true;
+      this.ready = true; this.wake(6000);
     });
+    THREE.DefaultLoadingManager.onStart = THREE.DefaultLoadingManager.onProgress = () => this.wake(6000);
     this.scene.environmentIntensity = 0.55;
     this.scene.background = skyTexture();
     this.scene.add(this.clouds.mesh);
@@ -294,7 +304,7 @@ export class BlockScene {
 
   /** The real surroundings of the complex view around this block (surroundings.ts). */
   private addGround() {
-    const sur = (this.sur = new BlockSurroundings(this.blockId, () => (this.dirty = true)));
+    const sur = (this.sur = new BlockSurroundings(this.blockId, () => this.wake(4000)));
     this.grass = sur.groundMesh;
     this.scene.add(sur.groundMesh, sur.group);
     if (sur.blocks) this.scene.add(sur.blocks);
@@ -1347,6 +1357,7 @@ export class BlockScene {
   }
 
   dispose() {
+    THREE.DefaultLoadingManager.onStart = THREE.DefaultLoadingManager.onProgress = () => {};
     if (this.engOn) this.ghost(false);
     this.eng?.dispose(); this.con?.dispose(); this.clouds.dispose();
     cancelAnimationFrame(this.raf);
@@ -1474,11 +1485,42 @@ export class BlockScene {
     this.renderer.domElement.style.cursor = p ? 'pointer' : 'grab';
     this.cb.onHover(p, e.clientX, e.clientY);
   };
+  /**
+   * The orbit camera stays outside the block: zoomed or turned into a wall it stops 1.5 m before the face the line
+   * from the target crosses (inside, it saw the walls' backs: a grey or black screen, and the Ultra renderer's
+   * screen-space effects at point blank dropped to ~8 FPS). The box ends at the storey cutaway, so a floor plan
+   * is still looked at from above; the flat view and the engineering view (see-through) are left free.
+   */
+  private keepOutOfBlock() {
+    if (this.aptMode || this.engOn || this.goal) return false;
+    const p = this.camera.position, t = this.controls.target, m = 1.5;
+    const lo = [-BLOCK_W / 2 - m, -1e6, -BLOCK_D / 2 - 2 - m], hi = [BLOCK_W / 2 + m, Math.min(53, cut.constant) + m, BLOCK_D / 2 + 2 + m];
+    const P = [p.x, p.y, p.z];
+    if (P.some((v, i) => v <= lo[i] || v >= hi[i])) return false;
+    const d = new THREE.Vector3().subVectors(p, t);
+    if (d.lengthSq() < 1e-6) d.set(0, 0, -1);
+    d.normalize();
+    const O = [t.x, t.y, t.z], D = [d.x, d.y, d.z];
+    let sIn = -Infinity, sOut = Infinity;
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(D[i]) < 1e-9) continue;
+      let a = (lo[i] - O[i]) / D[i], b = (hi[i] - O[i]) / D[i];
+      if (a > b) [a, b] = [b, a];
+      sIn = Math.max(sIn, a); sOut = Math.min(sOut, b);
+    }
+    // target outside the box: stop in front of it; target inside: leave by the face behind the camera
+    const s = sIn > 0 ? sIn : sOut;
+    if (!Number.isFinite(s)) return false;
+    p.copy(t).addScaledVector(d, s);
+    return true;
+  }
+
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now(), dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     if (!this.ready) return;
+    if (now < this.awake) this.dirty = true;
     if (this.glide.tick(dt)) this.applyHour(this.glide.hour);
     if (this.walk) {
       if (this.updateWalk(dt)) this.dirty = true;
@@ -1495,9 +1537,10 @@ export class BlockScene {
     }
     this.controls.dampingFactor = orbitDamping(dt);
     this.controls.update();
+    if (this.keepOutOfBlock()) this.dirty = true;
     if (this.engOn && this.eng?.update(dt)) this.dirty = true;
     if (this.lighting?.update(dt, { walker: null, aptOn: this.aptLightsOn(), nightF: this.nightF, rig: false })) this.dirty = true;
-    if (this.camera.position.y < 1.2) { this.camera.position.y = 1.2; this.dirty = true; }
+    if (keepAboveGround(this.camera.position, this.controls.target, 1.2)) this.dirty = true;
     if (!this.dirty && !this.proWants) return;
     const ch = this.dirty; this.dirty = false;
     this.draw(ch);

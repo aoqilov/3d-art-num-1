@@ -3,6 +3,7 @@ import BlockView from './block/BlockView';
 import { DEFAULT_HOUR, STOPS, STOP_NAMES, fmtStop } from './three/timeStops';
 import FullscreenButton from './block/ui/Fullscreen';
 import ModeSwitch from './block/ui/ModeSwitch';
+import { Icon } from './block/ui/icons';
 import { SECTIONS, type Sec } from './block/ui/i18n';
 import { ComplexScene } from './three/ComplexScene';
 import { BLOCKS, FLOORS, TOTAL_APARTMENTS, PRICE_PER_M2, TYPE4 } from './data/blocks';
@@ -14,6 +15,17 @@ import { PHASES, REPORT_DATE, TODAY_M, T_MONTHS, complexProgress, monthLabel } f
 
 const usd = (n: number) => '$' + n.toLocaleString('en-US').replace(/,/g, ' ');
 const STATUS: Record<Status, string> = { free: 'Sotuvda', reserved: 'Bron', sold: 'Sotilgan' };
+
+/** a row of the settings menu: name, a line of explanation, an on / off switch (a real checkbox underneath) */
+function Switch({ label, sub, checked, onChange }: { label: string; sub: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="sw">
+      <span className="txt"><b>{label}</b><small>{sub}</small></span>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span className="tr" aria-hidden />
+    </label>
+  );
+}
 
 
 const parseHash = (): { id: number; sec: Sec } | null => {
@@ -51,6 +63,12 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
   const [hour, setHour] = useState(DEFAULT_HOUR);
   const [ctxN, setCtxN] = useState<number | null | undefined>(undefined);
   const [live, setLive] = useState(() => location.search.includes('live=1'));
+  // the right-hand panel folds away to the right edge (closed at first; the viewer's choice is remembered)
+  const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem('om-panel') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('om-panel', panelOpen ? '1' : '0'); } catch { /* private window */ } }, [panelOpen]);
+  // the top bar of view settings folds up to the top edge the same way
+  const [toolsOpen, setToolsOpen] = useState(() => { try { return localStorage.getItem('om-tools') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('om-tools', toolsOpen ? '1' : '0'); } catch { /* private window */ } }, [toolsOpen]);
   const [mi, setMi] = useState(TODAY_M);
   const [playing, setPlaying] = useState(false);
   const editMode = useMemo(() => new URLSearchParams(location.search).get('edit') === '1', []);
@@ -117,19 +135,39 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
     <div className="app">
       <RenderStats place="top" />
       <div ref={host} className="viewport" />
+      {/* header in the block page's system (block/ui/block.css): brand · time of day · settings, dark glass */}
       <header className="top">
-        <div className="brand"><b>OBOD MASKAN<ModeSwitch /></b><span>turar-joy majmuasi · 3D general plan</span></div>
-        <span className="demo">DEMO · narx {usd(PRICE_PER_M2)}/m²</span>
-        {ctxN ? <label className="tog" title="Hovli: 3D ko‘kalamzorlashtirish yoki general plan rasmi"><input type="checkbox" checked={court3D} onChange={(e) => setCourt3D(e.target.checked)} /> 3D hovli</label> : null}
-        {(!ctxN || !court3D) && <label className="tog"><input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} /> General plan</label>}
-        <div className="tog time" role="group" aria-label="Kun vaqti" title="Kun vaqti (21-iyun, Toshkent): quyosh haqiqiy o‘rnida, kechasi chiroqlar yonadi">
-          <span aria-hidden>{hour >= 7 && hour <= 19 ? '☀' : '☾'}</span>
-          {STOPS.map((h) => <button key={h} className={h === hour ? 'on' : ''} title={STOP_NAMES[h]} aria-pressed={h === hour} onClick={() => setHour(h)}>{fmtStop(h)}</button>)}
+        <div className="brand c-glass">
+          <img src="logo.png" alt="Art House" />
+          <div><b>OBOD MASKAN<ModeSwitch /></b><span>Turar-joy majmuasi · 3D general plan</span></div>
         </div>
-        {ctxN !== null && <label className="tog" title="Atrofdagi uylar, ko‘chalar va trotuarlar (OpenStreetMap)"><input type="checkbox" checked={ctx} onChange={(e) => setCtx(e.target.checked)} /> Atrof</label>}
-        {ctxN !== null && ctx && <label className="tog" title="Atrofni oq maket ko‘rinishida ko‘rsatish"><input type="checkbox" checked={white} onChange={(e) => setWhite(e.target.checked)} /> Oq maket</label>}
-        <label className="tog live" title="Qurilish jarayoni: har bir blok bugun qaysi bosqichda (namunaviy jadval)"><input type="checkbox" checked={live} onChange={(e) => { setLive(e.target.checked); setSelected(null); }} /> Qurilish holati</label>
-        <FullscreenButton className="fs-btn" label="To‘liq ekran" hint="Brauzer bu oynada to‘liq ekranga ruxsat bermadi — klaviaturada F11 ni bosing" />
+
+        <div className="c-time c-glass" role="group" aria-label="Kun vaqti" title="Kun vaqti (21-iyun, Toshkent): quyosh haqiqiy o‘rnida, kechasi chiroqlar yonadi">
+          <div className="hours">
+            {STOPS.map((h) => <button key={h} className={'hr' + (h === hour ? ' on' : '')} title={STOP_NAMES[h]} aria-pressed={h === hour} onClick={() => setHour(h)}>{fmtStop(h)}</button>)}
+          </div>
+          <div className="stop-name"><Icon n={hour <= 4 || hour >= 23 ? 'moon' : hour <= 7 ? 'sunrise' : hour >= 19 ? 'sunset' : 'sun'} size={14} /><span>{STOP_NAMES[hour]}</span><small>21-iyun · Toshkent</small></div>
+        </div>
+
+        <div className="c-right">
+          <div className="c-set-wrap">
+            <button className={'c-set c-glass' + (toolsOpen ? ' on' : '')} onClick={() => setToolsOpen(!toolsOpen)} aria-expanded={toolsOpen} aria-controls="view-tools">
+              <Icon n="sliders" size={18} /><span>Sozlamalar</span>{live && <i className="c-dot" title="Qurilish holati yoqilgan" />}<Icon n={toolsOpen ? 'up' : 'down'} size={16} />
+            </button>
+            <div id="view-tools" className={'c-menu c-glass' + (toolsOpen ? '' : ' shut')} aria-hidden={!toolsOpen} inert={!toolsOpen}>
+              <h4>Ko‘rinish</h4>
+              {ctxN ? <Switch label="3D hovli" sub="Ko‘kalamzorlashtirish va jihozlar" checked={court3D} onChange={setCourt3D} /> : null}
+              {(!ctxN || !court3D) && <Switch label="General plan" sub="Hovlining chizma rasmi" checked={plan} onChange={setPlan} />}
+              {ctxN !== null && <Switch label="Atrof" sub="Uylar, ko‘chalar, trotuarlar" checked={ctx} onChange={setCtx} />}
+              {ctxN !== null && ctx && <Switch label="Oq maket" sub="Atrof oq rangda" checked={white} onChange={setWhite} />}
+              <hr />
+              <Switch label="Qurilish holati" sub="Bloklar qaysi bosqichda (namunaviy)" checked={live}
+                onChange={(v) => { setLive(v); setSelected(null); if (v) setPanelOpen(true); }} />
+              <p className="c-demo">DEMO · narx <b>{usd(PRICE_PER_M2)}/m²</b></p>
+            </div>
+          </div>
+          <FullscreenButton className="fs-btn c-glass" label="To‘liq ekran" hint="Brauzer bu oynada to‘liq ekranga ruxsat bermadi — klaviaturada F11 ni bosing" />
+        </div>
       </header>
 
       {hover && hover.id !== selected && (
@@ -145,8 +183,12 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
           <div><button onClick={outerExport} disabled={!outerN}>JSON yuklab olish</button><button onClick={() => scene.current?.outerClear()} disabled={!outerN}>Tozalash</button></div>
         </div>
       )}
-      {editMode && ctxN ? <EditPanel scene={scene} /> : (
-      <aside className="panel">
+      {editMode && ctxN ? <EditPanel scene={scene} /> : (<>
+      <button className={'panel-tab' + (panelOpen ? ' open' : '')} onClick={() => setPanelOpen(!panelOpen)}
+        aria-expanded={panelOpen} aria-controls="side-panel" title={panelOpen ? 'Panelni yopish' : 'Panelni ochish'}>
+        <span aria-hidden>{panelOpen ? '›' : '‹'}</span>{!panelOpen && <b>{live ? 'Qurilish' : selected ? `${selected}-blok` : 'Majmua'}</b>}
+      </button>
+      <aside id="side-panel" className={'panel' + (panelOpen ? '' : ' shut')} aria-hidden={!panelOpen} inert={!panelOpen}>
         {live && !selected && (
           <>
             <h2>Qurilish jarayoni</h2>
@@ -243,7 +285,7 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
           </>
         )}
       </aside>
-      )}
+      </>)}
       <p className="osm">Atrof: © OpenStreetMap mualliflari · Daraxtlar: 00amza, 99.Miles (Sketchfab, CC BY 4.0)</p>
     </div>
   );

@@ -2,6 +2,7 @@
 // scattering — the model behind Unreal's sky atmosphere): sky, sun disc, moon, stars, sunlight coloured and
 // dimmed by the air it crosses, sky light for reflections, and aerial perspective (haze over distance).
 // The scene is placed on the earth at the site in Tashkent, so the sky matches the real sun of sun.ts.
+import './idleDeadline';          // before the library: its table precompute waits for idle time otherwise
 import * as THREE from 'three';
 import { context } from 'three/tsl';
 import {
@@ -63,6 +64,10 @@ export function createAtmosphere(renderer: Renderer, camera: THREE.Camera, world
       return ap;
     },
     environment: () => skyEnvironment(),
+    /** each finished step of the table precompute (a scene drawn only on change must draw again then) */
+    onTables(cb: () => void) {
+      (atm as unknown as { lutNode?: THREE.EventDispatcher<{ update: object }> }).lutNode?.addEventListener('update', cb);
+    },
   };
 }
 export type Atmosphere = ReturnType<typeof createAtmosphere>;

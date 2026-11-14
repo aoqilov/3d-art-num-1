@@ -1,10 +1,12 @@
 // A block's own page: the real surroundings of the complex view around it — photo ground, streets, the courtyard
 // with its furniture and lamps, the neighbourhood, the other blocks (the Blender model), the outer city — placed in
 // this block's frame (complex → block). Around the block an open zone without trees, so the camera sees it from
-// every side; whatever still stands between the camera and the block (a neighbouring block, a tree further out)
-// is thinned out: a dithered mask that changes every frame, which the Ultra renderer's TRAA blends into a veil.
+// every side; whatever still stands between the camera and the block (a neighbouring block, a house, a tree) is
+// hidden whole: each of them carries its centre, top and radius ('bc'), and the mask drops the object when the line
+// of sight to the block passes through it (its shadow stays). The thinned-out veil before was a dotted mess without
+// the Ultra renderer's temporal blending and left half buildings standing.
 import * as THREE from 'three';
-import { Fn, attribute, bool, dot, float, fract, frameId, mix, positionWorld, screenCoordinate, uniform, vec2 } from 'three/tsl';
+import { Fn, attribute, bool, dot, float, modelWorldMatrix, uniform, vec2, vec4 } from 'three/tsl';
 import { BLOCKS, blockTheta } from '../data/blocks';
 import { BLOCK_D, BLOCK_W } from './plan';
 import { Context, Courtyard, loadContext, loadCourtyard, loadLocalEdits } from '../three/context';
@@ -54,16 +56,24 @@ export class BlockSurroundings {
     this.group.matrixAutoUpdate = false; this.group.matrix.copy(this.toBlock);
 
     const cam = this.fadeCam, to = this.fadeTo, on = this.fadeOn;
+    // keep a fragment unless its object (centre on the ground, top, radius in 'bc', object frame) stands in the line
+    // of sight: seen from above, the sight line passes within the object's radius (+3 m), between the camera and
+    // the block (an object reaching the block's own surroundings stays), and below its top there
     this.mask = Fn(() => {
-      const d = to.sub(cam), L2 = dot(d, d).max(1), L = L2.sqrt();
-      const t = dot(positionWorld.sub(cam), d).div(L2);
-      const perp = positionWorld.sub(cam.add(d.mul(t))).length();
-      const inside = t.greaterThan(0.02).and(t.lessThan(float(1).sub(float(14).div(L)))).and(perp.lessThan(mix(float(2.5), float(17), t.clamp(0, 1))))
-        .and(on.greaterThan(0.5));
-      // interleaved gradient noise, moved every frame: about a third of the pixels stay
-      const px = screenCoordinate.xy.add(float(frameId).mod(64).mul(5.588238));
-      const n = fract(float(52.9829189).mul(fract(dot(px, vec2(0.06711056, 0.00583715)))));
-      return inside.and(n.greaterThan(0.33)).not();
+      const bc = attribute('bc', 'vec4');
+      const c = modelWorldMatrix.mul(vec4(bc.x, 0, bc.z, 1)).xyz;
+      const top = bc.y, r = bc.w;
+      const d = to.sub(cam), dxz = vec2(d.x, d.z), cxz = vec2(c.x.sub(cam.x), c.z.sub(cam.z));
+      const Lxz = dxz.length().max(1);
+      const t = dot(cxz, dxz).div(Lxz.mul(Lxz));
+      const across = cxz.sub(dxz.mul(t)).length();
+      const height = cam.y.add(d.y.mul(t));
+      const blocks = on.greaterThan(0.5)
+        .and(t.greaterThan(r.add(2).div(Lxz).negate()))                 // also when the camera stands in it
+        .and(t.lessThan(float(1).sub(r.add(6).div(Lxz))))
+        .and(across.lessThan(r.add(3)))
+        .and(height.lessThan(top.add(3)));
+      return blocks.not();
     })();
 
     // the free land: earth and grass photo textures (ground.ts), as in the complex view
@@ -136,8 +146,23 @@ export class BlockSurroundings {
       own.set(m, c);
       return c;
     };
-    const inst = new THREE.InstancedMesh(mb.geometry, (mb.materials as THREE.Material[]).map(copy), others.length);
-    others.forEach((b, i) => inst.setMatrixAt(i, this.toBlock.clone().multiply(t4Matrix(b))));
+    // each block's centre, top and radius in this page's frame, for hiding the whole block (the mask above); on an
+    // own geometry object sharing the buffers — the Blender model's geometry is shared with the complex view
+    const mats = others.map((b) => this.toBlock.clone().multiply(t4Matrix(b)));
+    const centres = new Float32Array(mats.flatMap((M) => {
+      const c = new THREE.Vector3(BLOCK_W / 2, 0, BLOCK_D / 2).applyMatrix4(M);
+      const r = Math.max(...[[0, -2], [BLOCK_W, -2], [0, BLOCK_D + 2], [BLOCK_W, BLOCK_D + 2]].map(([x, z]) => new THREE.Vector3(x, 0, z).applyMatrix4(M).distanceTo(c)));
+      return [c.x, 52, c.z, r];
+    }));
+    const withCentres = (src: THREE.BufferGeometry) => {
+      const g = new THREE.BufferGeometry();
+      for (const [n, a] of Object.entries(src.attributes)) g.setAttribute(n, a);
+      g.setIndex(src.index); g.groups = src.groups;
+      g.setAttribute('bc', new THREE.InstancedBufferAttribute(centres, 4));
+      return g;
+    };
+    const inst = new THREE.InstancedMesh(withCentres(mb.geometry), (mb.materials as THREE.Material[]).map(copy), others.length);
+    mats.forEach((M, i) => inst.setMatrixAt(i, M));
     inst.castShadow = inst.receiveShadow = true;
     inst.computeBoundingSphere();
     this.blocks = inst;
@@ -145,7 +170,7 @@ export class BlockSurroundings {
       if (!g || this.blocks !== inst) return;
       const ms = g.names.map((n) => lib[n as keyof typeof lib]);
       if (ms.some((x) => !x)) return;
-      inst.geometry = g.geometry;
+      inst.geometry = withCentres(g.geometry);
       inst.material = ms.map(copy);
       if (g.ao) BAKE_AO.value = g.ao;
       inst.computeBoundingSphere();

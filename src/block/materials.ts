@@ -137,5 +137,7 @@ export function materials(): Record<MatName, THREE.Material> {
     granite: std({ color: '#2b2c2f', roughness: 0.35, metalness: 0.1 }),
     sign: std({ color: '#e2bd72', map: sign, alphaTest: 0.45, roughness: 0.4, metalness: 0.5, emissive: '#ffc873', emissiveMap: sign, emissiveIntensity: 0.6 }),
   };
+  // named: the Unreal export (tools/unreal) keeps the names, its scripts find the facade, the glass … by them
+  for (const [k, m] of Object.entries(lib)) m.name ||= k;
   return lib;
 }
