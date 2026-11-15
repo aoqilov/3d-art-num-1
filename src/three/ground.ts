@@ -27,12 +27,16 @@ export function groundMaterial() {
   // fresh young grass nearly everywhere, bare earth only in small patches (the owner: the land looked dried out).
   // The grass photo is mostly soil between blades (average linear 0.081 / 0.049 / 0.009: brown), so tinting it gave
   // olive; now only its light and shade is kept and it is coloured with two spring greens, mixed in patches.
-  const k = smoothstep(0.03, 0.32, n.add(fine.sub(0.5).mul(0.35)));
+  // away from the complex (350 → 800 m) the city's yards and verges: less lawn, more trodden earth and summer-dry
+  // grass — from above a field of one green read as a game, not Tashkent (the competitor's fly-over)
+  const far = smoothstep(350, 800, p.length());
+  const k = smoothstep(mix(float(0.03), float(0.35), far), mix(float(0.32), float(0.75), far), n.add(fine.sub(0.5).mul(0.35)));
   const g = two(grass, 4);
   const detail = dot(g, vec3(0.2126, 0.7152, 0.0722)).div(0.0531).clamp(0.4, 1.8);     // 0.0531: the photo's mean luminance
   // natural lawn greens (a first try at twice this saturation read as artificial turf from above)
-  const fresh = mix(vec3(0.058, 0.145, 0.026), vec3(0.092, 0.17, 0.034), smoothstep(0.3, 0.7, fine));
-  const lawn = fresh.mul(detail);
+  const fresh = mix(vec3(0.062, 0.125, 0.032), vec3(0.09, 0.145, 0.04), smoothstep(0.3, 0.7, fine));     // 2026-11-16: less neon from above
+  const dry = mix(vec3(0.10, 0.13, 0.045), vec3(0.15, 0.15, 0.07), smoothstep(0.3, 0.7, fine));
+  const lawn = mix(fresh, dry, far.mul(0.6)).mul(detail);
   const earth = two(dirt, 5).mul(vec3(0.82, 1.0, 0.72));          // the few bare patches: earth with a green cast
   const ground = mix(earth, lawn, k);
   nodes(m).colorNode = mix(materialColor, ground, textured);     // materialColor follows material.color

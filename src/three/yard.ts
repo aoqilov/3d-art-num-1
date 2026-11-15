@@ -23,19 +23,19 @@ export async function loadYard(): Promise<YardData | null> {
 }
 
 const BED_Y = 0.16, PAVE_Y = 0.04;
-const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
+export const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
   new THREE.BoxGeometry(Math.abs(x1 - x0), Math.abs(y1 - y0), Math.abs(z1 - z0)).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
 /** thin bar between two points */
-function bar(a: [number, number, number], b: [number, number, number], t = 0.07) {
+export function bar(a: [number, number, number], b: [number, number, number], t = 0.07) {
   const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), L = A.distanceTo(B);
   const g = new THREE.BoxGeometry(t, L, t);
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize()));
   return g.translate((A.x + B.x) / 2, (A.y + B.y) / 2, (A.z + B.z) / 2);
 }
-const cyl = (r: number, h: number, x: number, y: number, z: number, seg = 12) => new THREE.CylinderGeometry(r, r, h, seg).translate(x, y + h / 2, z);
-const place = (cx: number, cz: number, deg: number) => new THREE.Matrix4().makeTranslation(cx, 0, cz).multiply(new THREE.Matrix4().makeRotationY((-deg * Math.PI) / 180));
+export const cyl = (r: number, h: number, x: number, y: number, z: number, seg = 12) => new THREE.CylinderGeometry(r, r, h, seg).translate(x, y + h / 2, z);
+export const place = (cx: number, cz: number, deg: number) => new THREE.Matrix4().makeTranslation(cx, 0, cz).multiply(new THREE.Matrix4().makeRotationY((-deg * Math.PI) / 180));
 
-function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
+export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   draw(c.getContext('2d')!);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
@@ -71,7 +71,7 @@ function rubberTex(w: number, d: number) {
     g.strokeStyle = '#8e8a82'; g.lineWidth = 0.3 * k; g.strokeRect(0, 0, W, D);
   });
 }
-function meshTex() {
+export function meshTex() {
   const t = canvasTex(64, 64, (g) => {
     g.clearRect(0, 0, 64, 64); g.strokeStyle = '#2f5a45'; g.lineWidth = 3;
     for (let i = -64; i < 128; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 64, 64); g.moveTo(i + 64, 0); g.lineTo(i, 64); g.stroke(); }
@@ -79,7 +79,7 @@ function meshTex() {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
-function flowerTex(scheme: number) {
+export function flowerTex(scheme: number) {
   const sets = [['#e0483e', '#f2c230', '#fff'], ['#e58ab0', '#fff', '#c94f8a'], ['#8a63c9', '#c9b2f0', '#f2e9a0'], ['#f08a2c', '#f2d13a', '#e0483e']];
   return canvasTex(256, 256, (g) => {
     let sd = scheme * 97 + 5; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);

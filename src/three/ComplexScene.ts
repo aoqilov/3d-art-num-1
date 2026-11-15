@@ -22,6 +22,7 @@ import { LAMP_LIGHTS } from './lamps';
 import { layoutCourtyard } from './courtLayout';
 import { groundMaterial } from './ground';
 import { OuterCity, loadOuter } from './outer';
+import { roomGlass, setRoomLight } from './roomGlass';
 import { renderStats } from './stats';
 import { LAMP_COUNT } from './lamps';
 import { BLOCK_D, BLOCK_W } from '../block/plan';
@@ -447,9 +448,9 @@ export class ComplexScene {
     const lib = materials();
     facadeGlow(lib);
     const glass = lib.glass as THREE.MeshPhysicalMaterial;
-    this.glassNight = glass.clone();
-    this.glassNight.emissive.set('#ffcf8f');
-    this.glassNight.emissiveIntensity = 0;
+    // the complex's own glass: reflective panes with rooms behind them (roomGlass.ts); the block page keeps the
+    // see-through glass of its real rooms
+    this.glassNight = roomGlass();
     const mats = (mb.materials as THREE.Material[]).map((m) => (m === glass ? this.glassNight! : m));
     const inst = new THREE.InstancedMesh(mb.geometry, mats, this.type4.length);
     const m = new THREE.Matrix4(), r = new THREE.Matrix4(), c = new THREE.Matrix4().makeTranslation(-BLOCK_W / 2, 0, -BLOCK_D / 2);
@@ -497,6 +498,7 @@ export class ComplexScene {
     this.hemi.intensity = 0.1 + 0.28 * dayK + 0.14 * nightF;   // moonlight keeps the night readable
     this.hemi.color.set('#dfe9f5').lerp(new THREE.Color('#3d4a70'), nightF);
     this.nightF = nightF; this.applyNight();
+    setRoomLight(dayK, nightF);
     this.clouds.setSun(dir, { dayK, dusk, nightF });
     if (this.pro) { this.pro.hour({ sunDir: dir, nightF, dusk, dayK, hour: h, moving }); return; }
     const sky = (this.sky ??= new SkyMap());
@@ -515,9 +517,9 @@ export class ComplexScene {
     FACADE_NIGHT.value = n;
     this.nightMats.forEach((m) => (m.emissiveIntensity = 1.2 * n));
     this.glowMats.forEach(([m, k]) => (m.emissiveIntensity = k * n));
-    if (this.glassNight) this.glassNight.emissiveIntensity = 0.55 * n;
     this.ctx?.setNight(n);
     this.court?.setNight(n);
+    this.outer?.setNight(n);
   }
   isPro() { return !!this.pro; }
 
@@ -557,9 +559,10 @@ export class ComplexScene {
     const od = await loadOuter();
     if (od) {
       this.outerData = od; this.outer = new OuterCity(od);
+      this.outer.setNight(this.nightF);
       this.outer.group.visible = this.ctxVisible;
       this.scene.add(this.outer.group);
-      const fog = this.scene.fog as THREE.Fog; fog.near = 600; fog.far = 2600;
+      const fog = this.scene.fog as THREE.Fog; fog.near = 250; fog.far = 3200;
       this.controls.maxDistance = this.outerEdit ? 2200 : 900;
       this.wake(3000);
     }
@@ -949,11 +952,11 @@ export class ComplexScene {
     this.controls.dampingFactor = orbitDamping(dt);
     this.controls.update();
     if (keepAboveGround(this.camera.position, this.controls.target, 2)) this.dirty = true;
-    // haze with the viewing distance: the usual 0.6–2.6 km close by, pushed out when looking at a far place or a
-    // whole 5 km ring from above (it hid everything there)
+    // haze with the viewing distance: from 250 m (aerial depth: without it a view from above read as a flat game
+    // board), pushed out when looking at a far place or a whole 5 km ring from above (it hid everything there)
     if (this.outer) {
       const fog = this.scene.fog as THREE.Fog, d = this.camera.position.distanceTo(this.controls.target);
-      fog.near = Math.max(600, d * 0.7); fog.far = Math.max(2600, d * 3);
+      fog.near = Math.max(250, d * 0.35); fog.far = Math.max(3200, d * 3.5);
     }
     if (this.progOn) {                                                   // the cranes turn; the badges make room
       this.prog?.tick(dt); this.dirty = true;

@@ -1,12 +1,63 @@
-// Outer surroundings (public/context/outer.json, tools/outer/merge.mjs): the city beyond the inner neighbourhood
-// as plain grey boxes — every building's footprint extruded to its CADMapper height, all in one mesh.
+// Outer surroundings (public/context/outer.json, tools/outer/merge.mjs): the city beyond the inner neighbourhood —
+// every building's footprint extruded to its CADMapper height, all in one mesh. The material draws the rest
+// (facadeMaterial): plaster / panel / brick by building, storeys and windows on the walls (glass, some curtains,
+// lit ones at night), flat bitumen roofs on the tall ones, tin on the houses — so from above the city is not a
+// field of grey boxes (the owner compared it with a competitor's Unreal fly-over).
 // ?edit=2: click (Shift+click adds) to mark buildings; marks are kept in this browser and exported as JSON
 // (outer-picks.json) — the owner picks the ones worth detailing.
 import * as THREE from 'three';
+import { attribute, float, floor, fract, fwidth, hash, max, mix, normalWorld, positionWorld, select, smoothstep, step, uniform, vec3 } from 'three/tsl';
+import { nodes } from './gpu';
 
 type Outer = { buildings: number[][]; roads?: number[][] };
 const KEY = 'om-outer-picks';
-const GREY = new THREE.Color('#a4a4a0'), PICK = new THREE.Color('#e3b878'), HOVER = new THREE.Color('#f2dcae');
+// vertex colours tint the material for the marks: white = as drawn
+const GREY = new THREE.Color('#ffffff'), PICK = new THREE.Color('#ffc46b'), HOVER = new THREE.Color('#ffe2a6');
+
+const NIGHT = uniform(0);
+const rnd = (id: number) => { const s = Math.sin(id * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
+
+/** walls: storeys of windows along the wall ('fac'.x = metres along the outline), filtered so that a distant wall
+ *  turns into its average instead of shimmering; roofs: bitumen or tin */
+function facadeMaterial() {
+  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.9 });
+  const fac = attribute('fac', 'vec3');                     // metres along the walls, building height, random
+  const u = fac.x, H = fac.y, r = fac.z, y = positionWorld.y;
+  const low = H.lessThan(5.5);                               // one-storey houses of the mahalla
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TSL node types do not chain through select()
+  const pal = (k: any, c: [number, number, number][], w: number[]) => {
+    let out: any = vec3(...c[c.length - 1]), acc = 0;
+    const edges = w.map((x) => (acc += x));
+    for (let i = c.length - 2; i >= 0; i--) out = select(k.lessThan(edges[i]), vec3(...c[i]), out);
+    return out;
+  };
+  const k1 = fract(r.mul(7.13)), k2 = fract(r.mul(3.71));
+  // linear colours: white and cream plaster, beige, pale yellow, grey panel, light blue-grey, brick
+  const tall = pal(k1, [[0.70, 0.68, 0.63], [0.66, 0.58, 0.44], [0.46, 0.46, 0.44], [0.56, 0.50, 0.41], [0.50, 0.55, 0.57], [0.34, 0.19, 0.13]], [0.28, 0.2, 0.2, 0.12, 0.1]);
+  const house = pal(k1, [[0.68, 0.66, 0.60], [0.62, 0.54, 0.40], [0.55, 0.47, 0.37], [0.36, 0.21, 0.14], [0.66, 0.60, 0.42]], [0.35, 0.22, 0.18, 0.13]);
+  const wall = select(low, house, tall).mul(mix(0.78, 1, smoothstep(0, 1.4, y))).mul(mix(0.9, 1.06, k2));
+  // storeys (3 m; houses 3.4 m) and window columns (3–3.8 m; houses 4.2 m)
+  const fh = select(low, float(3.4), float(3.0)), sp = select(low, float(4.2), float(3.0).add(r.mul(0.8)));
+  const fy = y.sub(0.2).div(fh), fx = u.div(sp);
+  const wy = fract(fy), wx = fract(fx);
+  const dY = max(fwidth(fy), 1e-4), dX = max(fwidth(fx), 1e-4);
+  const pulse = (f: typeof wy, a: number, b: number, d: typeof dY) => smoothstep(float(a).sub(d), float(a).add(d), f).sub(smoothstep(float(b).sub(d), float(b).add(d), f));
+  let win: any = pulse(wy, 0.3, 0.8, dY).mul(pulse(wx, 0.28, 0.72, dX));
+  win = mix(win, float(0.22), smoothstep(0.2, 0.6, max(dX, dY)));             // too small to draw: the average
+  win = win.mul(step(0.6, y)).mul(step(y, H.sub(0.45)));                      // no windows in the plinth, parapet
+  const cell = hash(floor(fx).mul(17).add(floor(fy).mul(131)).add(r.mul(9973)));
+  const glass = mix(vec3(0.03, 0.04, 0.05), vec3(0.32, 0.29, 0.25), step(0.72, cell));      // ~28 % curtains
+  const roofC = select(low,
+    pal(k2, [[0.42, 0.44, 0.45], [0.22, 0.30, 0.25], [0.36, 0.20, 0.15], [0.30, 0.31, 0.32]], [0.4, 0.25, 0.2]),     // tin
+    mix(vec3(0.16, 0.16, 0.16), vec3(0.34, 0.33, 0.31), k2));                                                         // bitumen / concrete
+  const isRoof = normalWorld.y.greaterThan(0.5);
+  nodes(m).colorNode = select(isRoof, roofC, mix(wall, glass, win));
+  nodes(m).roughnessNode = select(isRoof, float(0.85), mix(float(0.9), float(0.15), win));
+  // night: a share of the windows lit, warm
+  const lit = step(0.8, hash(floor(fx).mul(29).add(floor(fy).mul(57)).add(r.mul(4211)))).mul(win).mul(select(isRoof, float(0), float(1)));
+  nodes(m).emissiveNode = vec3(1.0, 0.72, 0.42).mul(lit).mul(NIGHT).mul(1.6);
+  return m;
+}
 
 export async function loadOuter(): Promise<Outer | null> {
   try { const r = await fetch('context/outer.json'); return r.ok ? await r.json() : null; } catch { return null; }
@@ -23,7 +74,7 @@ export class OuterCity {
   private hover = -1;
 
   constructor(data: Outer) {
-    const pos: number[] = [], idx: number[] = [], tri: number[] = [];
+    const pos: number[] = [], idx: number[] = [], tri: number[] = [], fac: number[] = [];
     for (const b of data.buildings) {
       const id = b[0], h = b[1], ring: [number, number][] = [];
       for (let i = 2; i + 1 < b.length; i += 2) ring.push([b[i], b[i + 1]]);
@@ -31,29 +82,34 @@ export class OuterCity {
       // counter-clockwise in x, z (outward walls)
       let a = 0; for (let i = 0; i < ring.length; i++) { const [x0, z0] = ring[i], [x1, z1] = ring[(i + 1) % ring.length]; a += x0 * z1 - x1 * z0; }
       if (a > 0) ring.reverse();
-      const v0 = pos.length / 3;
-      // walls: own vertices per wall (flat shading)
+      const v0 = pos.length / 3, r = rnd(id);
+      // walls: own vertices per wall (flat shading); 'fac' = metres along the outline, height, random
+      let s = 0;
       for (let i = 0; i < ring.length; i++) {
         const [x0, z0] = ring[i], [x1, z1] = ring[(i + 1) % ring.length], k = pos.length / 3;
+        const s1 = s + Math.hypot(x1 - x0, z1 - z0);
         pos.push(x0, 0, z0, x1, 0, z1, x1, h, z1, x0, h, z0);
+        fac.push(s, h, r, s1, h, r, s1, h, r, s, h, r);
         idx.push(k, k + 1, k + 2, k, k + 2, k + 3); tri.push(id, id);
+        s = s1;
       }
       // flat roof
       const k = pos.length / 3;
-      for (const [x, z] of ring) pos.push(x, h, z);
+      for (const [x, z] of ring) { pos.push(x, h, z); fac.push(0, h, r); }
       const faces = THREE.ShapeUtils.triangulateShape(ring.map(([x, z]) => new THREE.Vector2(x, z)), []);
       for (const [p, q, r] of faces) { idx.push(k + p, k + r, k + q); tri.push(id); }
       this.vRange.set(id, [v0, pos.length / 3 - v0]);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('fac', new THREE.Float32BufferAttribute(fac, 3));
     g.setIndex(idx);
     g.computeVertexNormals();
     const col = new Float32Array(pos.length).fill(1);
     this.colors = new THREE.BufferAttribute(col, 3);
     g.setAttribute('color', this.colors);
     this.triId = new Uint32Array(tri);
-    this.mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: GREY, vertexColors: true, roughness: 0.9 }));
+    this.mesh = new THREE.Mesh(g, facadeMaterial());
     this.mesh.castShadow = this.mesh.receiveShadow = true;
     this.mesh.name = 'outer-city';
     this.group.add(this.mesh);
@@ -61,6 +117,9 @@ export class OuterCity {
     try { for (const id of JSON.parse(localStorage.getItem(KEY) ?? '[]')) this.picks.add(id); } catch { /* storage blocked */ }
     for (const id of this.picks) this.paint(id);
   }
+
+  /** 0 day … 1 night: a share of the windows lit */
+  setNight(n: number) { NIGHT.value = n; }
 
   private paint(id: number) {
     const r = this.vRange.get(id); if (!r) return;

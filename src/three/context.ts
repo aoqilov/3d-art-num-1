@@ -4,14 +4,15 @@
 import * as THREE from 'three';
 import { Forest, type TreeAt } from './trees';
 import { GlbForest, type GlbAt } from './glbTrees';
-import { Mask, PointGrid, fillRows, scatter, scatterFree } from './densify';
+import { Mask, PointGrid, fillRows, inPoly, scatter, scatterFree } from './densify';
+import { Places, loadPlaces, type Place } from './places';
 import { Lamps } from './lamps';
 import { nodes } from './gpu';
 
 export type Roof = 'pitched' | 'flat';
 export type CtxBuilding = { id: string; p: number[]; f: number; r: Roof; s: 'est' | 'osm'; a: number };
 type Tri = { v: number[]; i: number[] };
-export type CtxData = { site: number[]; buildings: CtxBuilding[]; road: Tri; walk: Tri; paths: Tri; parks: Tri; dashes: number[][]; streetTrees?: number[][]; yardTrees?: number[][]; lamps?: number[][] };
+export type CtxData = { site: number[]; buildings: CtxBuilding[]; road: Tri; walk: Tri; paths: Tri; parks: Tri; dashes: number[][]; streetTrees?: number[][]; yardTrees?: number[][]; lamps?: number[][]; places?: Place[] };
 export type Override = { floors?: number; roof?: Roof; hidden?: boolean };
 export type Overrides = Record<string, Override>;
 export type CtxStyle = 'real' | 'white';
@@ -43,6 +44,13 @@ export async function loadContext(): Promise<{ data: CtxData; file: Overrides } 
     const data = (await r.json()) as CtxData;
     let file: Overrides = {};
     try { const o = await fetch('context/overrides.json'); if (o.ok) file = await o.json(); } catch { /* optional */ }
+    // real places drawn from their own data (places.ts): their buildings replace the generated ones
+    const places = await loadPlaces();
+    if (places.length) {
+      const gone = new Set(places.flatMap((p) => p.replace));
+      data.buildings = data.buildings.filter((b) => !gone.has(b.id)).concat(places.flatMap((p) => p.buildings));
+      data.places = places;
+    }
     return { data, file };
   } catch { return null; }
 }
@@ -64,7 +72,8 @@ export function resolve(b: CtxBuilding, ...layers: Overrides[]) {
 const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return (h >>> 0) / 4294967296; };
 const WALLS_SMALL = ['#e9dfcc', '#efe9de', '#dcc8a8', '#e4d3b8', '#d2b48f', '#f1ede4', '#c9a585'];
 const WALLS_BIG = ['#ddd7cc', '#e6e1d7', '#cfc8bc', '#e9e4da'];
-const ROOFS = ['#9a4436', '#8a3a2f', '#4f7a5c', '#5b6f7e', '#8e9396', '#a65243', '#7c8285'];
+// mostly galvanised tin, some faded red-brown, green or blue-grey (the first, saturated reds read as toy roofs from above)
+const ROOFS = ['#8d9194', '#9a9ea0', '#7f8588', '#85584c', '#76524a', '#5d7264', '#66727c', '#a1a5a6', '#8a6b5f'];
 const ROOF_FLAT = '#8f8d88';
 const ROAD_FALLBACK = '#3f3f42';
 
@@ -239,43 +248,53 @@ export class Context {
     this.wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: this.winTex, roughness: 0.92, emissiveMap: litTexture(), emissive: '#ffffff', emissiveIntensity: 0 });
     this.roofMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide });
     this.buildStreets();
+    if (data.places?.length) { this.places = new Places(data.places, { asphalt: this.street[0], pavers: this.street[1] }); this.group.add(this.places.group); }
     this.buildTrees();
     if (data.lamps?.length) { this.lamps = new Lamps(data.lamps, [], CURB_H); this.group.add(this.lamps.group); }
   }
   private lamps: Lamps | null = null;
+  private places: Places | null = null;
   private night = 0;
   /** 0 day … 1 night: lit windows and street lamps */
   setNight(n: number) {
     this.night = n;
     this.wallMat.emissiveIntensity = this.style === 'white' ? 0 : 1.3 * n;
     this.lamps?.setNight(this.style === 'white' ? 0 : n);
+    this.places?.setNight(n);
   }
 
   /** street trees on the sidewalks (poplars on main roads, plane trees elsewhere) and fruit trees in the yards */
   private buildTrees() {
     const d = this.data, list: TreeAt[] = [];
     let s = 9; const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-    for (const [x, z, k] of d.streetTrees ?? []) list.push({ x, z, y: CURB_H, kind: k === 0 ? 'terak' : 'chinor', s: k === 0 ? 0.9 : 0.75 + r() * 0.3 });
+    // a real place (places.ts): its own trees, none generated inside it, none on its hard ground
+    const places = d.places ?? [];
+    const inPlace = (x: number, z: number) => places.some((p) => inPoly(x, z, p.area));
+    const onHard = (x: number, z: number) => places.some((p) => p.clear.some((c) => inPoly(x, z, c)));
+    for (const p of places) for (const [x, z, k, sc] of p.trees) list.push({ x, z, kind: k as TreeAt['kind'], s: sc });
+    for (const [x, z, k] of d.streetTrees ?? []) if (!onHard(x, z)) list.push({ x, z, y: CURB_H, kind: k === 0 ? 'terak' : 'chinor', s: k === 0 ? 0.9 : 0.75 + r() * 0.3 });
     for (const [x, z] of d.yardTrees ?? []) {
+      if (inPlace(x, z)) continue;
       const v = r();
       list.push(v < 0.7 ? { x, z, kind: 'mevali', s: 0.8 + r() * 0.5 } : v < 0.85 ? { x, z, kind: 'chinor', s: 0.6 + r() * 0.3 } : { x, z, kind: 'archa', s: 0.8 + r() * 0.4 });
     }
     // greener: the gaps of the street rows filled, the parks planted (densify.ts)
     const taken = new PointGrid(8);
     list.forEach((t) => taken.add(t.x, t.z));
-    for (const [x, z, k] of fillRows(d.streetTrees ?? [], taken)) list.push({ x, z, y: CURB_H, kind: k === 0 ? 'terak' : 'chinor', s: k === 0 ? 0.9 : 0.75 + r() * 0.3 });
+    for (const [x, z, k] of fillRows(d.streetTrees ?? [], taken)) if (!onHard(x, z)) list.push({ x, z, y: CURB_H, kind: k === 0 ? 'terak' : 'chinor', s: k === 0 ? 0.9 : 0.75 + r() * 0.3 });
     // the yards of the neighbourhood: free ground (not road, sidewalk, path, park, house or the site itself)
-    // within 420 m of the complex, a tree every ~9 m
+    // within 420 m of the complex, a tree every ~7.5 m (at most 6000: the first 2200 left two thirds of the yards bare)
     const R = 420, mask = new Mask(-R, -R, 2 * R, 2);
     for (const t of [d.road, d.walk, d.paths, d.parks]) mask.tris(t);
     for (const bd of d.buildings) mask.poly(bd.p);
     mask.poly(d.site);
+    for (const p of places) mask.poly(p.area);
     mask.grow(1);
-    for (const [x, z] of scatterFree(mask, 0, 0, R, 9, taken, r, 2200)) {
+    for (const [x, z] of scatterFree(mask, 0, 0, R, 7.5, taken, r, 6000)) {
       const v = r();
       list.push(v < 0.5 ? { x, z, kind: 'mevali', s: 0.8 + r() * 0.5 } : v < 0.85 ? { x, z, kind: 'chinor', s: 0.6 + r() * 0.35 } : { x, z, kind: 'archa', s: 0.7 + r() * 0.4 });
     }
-    for (const [x, z] of scatter(d.parks, 6, taken, r, 2000)) {
+    for (const [x, z] of scatter(d.parks, 6, taken, r, 2000, (x, z) => !inPlace(x, z))) {
       const v = r();
       list.push({ x, z, y: Y_PARK, kind: v < 0.55 ? 'chinor' : v < 0.85 ? 'mevali' : 'archa', s: 0.7 + r() * 0.4 });
     }
@@ -322,6 +341,7 @@ export class Context {
   setMask(mask: unknown, shadow: unknown) {
     for (const m of [this.wallMat, this.roofMat]) { nodes(m).maskNode = mask; nodes(m).maskShadowNode = shadow; m.needsUpdate = true; }
     this.glb?.setMask(mask, shadow);
+    this.places?.setMask(mask, shadow);
   }
 
   private buildStreets() {
@@ -435,7 +455,7 @@ export class Context {
     this.wallMat.color.set(white ? '#f4f3f0' : '#ffffff');
     this.roofMat.color.set(white ? '#e4e3df' : '#ffffff');
     this.wallMat.needsUpdate = this.roofMat.needsUpdate = true;
-    this.forest?.setWhite(white); this.glb?.setWhite(white);
+    this.forest?.setWhite(white); this.glb?.setWhite(white); this.places?.setStyle(white);
     for (const m of this.street) {
       const u = m.userData as { fallback: string; map?: THREE.Texture; normalMap?: THREE.Texture };
       if (m.map) { u.map = m.map; u.normalMap = m.normalMap ?? undefined; }
