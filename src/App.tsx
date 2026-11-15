@@ -10,6 +10,9 @@ import { BLOCKS, FLOORS, TOTAL_APARTMENTS, PRICE_PER_M2, TYPE4 } from './data/bl
 import { APARTMENTS, blockStats, type Status } from './data/apartments';
 import EditPanel from './three/EditPanel';
 import RenderStats from './three/RenderStats';
+import NearbyPanel from './three/NearbyPanel';
+import { loaderClose, loaderReveal } from './loader';
+import { blockInfo } from './data/blockInfo';
 import { fmtHour } from './three/sun';
 import { PHASES, REPORT_DATE, TODAY_M, T_MONTHS, complexProgress, monthLabel } from './data/progress';
 
@@ -37,14 +40,24 @@ const parseHash = (): { id: number; sec: Sec } | null => {
 
 export default function App() {
   const [route, setRoute] = useState(parseHash);
+  const cur = useRef(route); cur.current = route;
+  // another view (the complex ↔ a block, or another block): the loading clouds close over the old one first, the new
+  // one parts them when it has arrived (loader.ts); a section of the same block page switches at once
   useEffect(() => {
-    const f = () => setRoute(parseHash());
+    const f = () => {
+      const r = parseHash();
+      if ((r?.id ?? null) === (cur.current?.id ?? null)) setRoute(r);
+      else void loaderClose().then(() => setRoute(parseHash()));
+    };
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f);
   }, []);
   const go = (id: number | null, sec: Sec = 'bino') => {
-    const h = id === null ? '' : `blok-${id}${sec === 'bino' ? '' : '-' + sec}`;
-    if (h) location.hash = h; else history.replaceState(null, '', location.pathname + location.search);
-    setRoute(id === null ? null : { id, sec });
+    const apply = () => {
+      const h = id === null ? '' : `blok-${id}${sec === 'bino' ? '' : '-' + sec}`;
+      if (h) location.hash = h; else history.replaceState(null, '', location.pathname + location.search);
+      setRoute(id === null ? null : { id, sec });
+    };
+    if (id === (cur.current?.id ?? null)) apply(); else void loaderClose().then(apply);
   };
   if (route) return <BlockView key={route.id} blockId={route.id} sec={route.sec} onSec={(s) => go(route.id, s)} onBack={() => go(null)} />;
   return <ComplexApp onOpen={(id) => go(id)} />;
@@ -69,6 +82,15 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
   // the top bar of view settings folds up to the top edge the same way
   const [toolsOpen, setToolsOpen] = useState(() => { try { return localStorage.getItem('om-tools') === '1'; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem('om-tools', toolsOpen ? '1' : '0'); } catch { /* private window */ } }, [toolsOpen]);
+  // the settings menu closes on a click anywhere else (it stood over the side panel), and on Esc
+  const setWrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const down = (e: PointerEvent) => { if (!setWrap.current?.contains(e.target as Node)) setToolsOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setToolsOpen(false); };
+    addEventListener('pointerdown', down, true); addEventListener('keydown', key);
+    return () => { removeEventListener('pointerdown', down, true); removeEventListener('keydown', key); };
+  }, [toolsOpen]);
   const [mi, setMi] = useState(TODAY_M);
   const [playing, setPlaying] = useState(false);
   const editMode = useMemo(() => new URLSearchParams(location.search).get('edit') === '1', []);
@@ -93,6 +115,7 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
       onContext: (n) => setCtxN(n),
     });
     scene.current = s;
+    loaderReveal(s.loaded);
     (window as unknown as { __complex: ComplexScene }).__complex = s;
     return () => s.dispose();
   }, []);
@@ -118,6 +141,9 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
     return () => cancelAnimationFrame(raf);
   }, [playing]);
   const cp = useMemo(() => complexProgress(mi), [Math.round(mi * 4)]);
+  // live construction: the block pointed at in the view brings its card in the side panel into sight
+  const cardRefs = useRef(new Map<number, HTMLButtonElement>());
+  useEffect(() => { if (live && hover) cardRefs.current.get(hover.id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [live, hover?.id]);
 
   const totals = useMemo(() => {
     const c = { free: 0, reserved: 0, sold: 0 };
@@ -134,6 +160,7 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
   return (
     <div className="app">
       <RenderStats place="top" />
+      <NearbyPanel scene={scene} />
       <div ref={host} className="viewport" />
       {/* header in the block page's system (block/ui/block.css): brand · time of day · settings, dark glass */}
       <header className="top">
@@ -150,7 +177,7 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
         </div>
 
         <div className="c-right">
-          <div className="c-set-wrap">
+          <div className="c-set-wrap" ref={setWrap}>
             <button className={'c-set c-glass' + (toolsOpen ? ' on' : '')} onClick={() => setToolsOpen(!toolsOpen)} aria-expanded={toolsOpen} aria-controls="view-tools">
               <Icon n="sliders" size={18} /><span>Sozlamalar</span>{live && <i className="c-dot" title="Qurilish holati yoqilgan" />}<Icon n={toolsOpen ? 'up' : 'down'} size={16} />
             </button>
@@ -162,7 +189,7 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
               {ctxN !== null && ctx && <Switch label="Oq maket" sub="Atrof oq rangda" checked={white} onChange={setWhite} />}
               <hr />
               <Switch label="Qurilish holati" sub="Bloklar qaysi bosqichda (namunaviy)" checked={live}
-                onChange={(v) => { setLive(v); setSelected(null); if (v) setPanelOpen(true); }} />
+                onChange={(v) => { setLive(v); setSelected(null); if (v) { setPanelOpen(true); setToolsOpen(false); } }} />
               <p className="c-demo">DEMO · narx <b>{usd(PRICE_PER_M2)}/m²</b></p>
             </div>
           </div>
@@ -170,9 +197,10 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
         </div>
       </header>
 
-      {hover && hover.id !== selected && (
+      {/* in the live construction view the block's card opens instead (blockCards.ts) */}
+      {hover && hover.id !== selected && !live && (
         <div className="tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
-          {live ? (() => { const p = cp.ps[BLOCKS.findIndex((b) => b.id === hover.id)]; return `${hover.id}-blok · ${PHASES[p.phase].name[0]} · ${p.pct}%`; })() : `${hover.id}-blok · ${blockStats(hover.id).free} ta sotuvda`}
+          {`${hover.id}-blok · ${blockStats(hover.id).free} ta sotuvda`}
         </div>
       )}
 
@@ -209,15 +237,26 @@ function ComplexApp({ onOpen }: { onOpen: (id: number) => void }) {
             </div>
             <p className="hint">Oxirgi hisobot: {REPORT_DATE.split('-').reverse().join('.')}. Vaqtni suring yoki ▶ bosing — bloklar qanday qurilishini ko‘rasiz.</p>
             <div className="phases">{PHASES.slice(1).map((ph) => <span key={ph.color}><i style={{ background: ph.color }} />{ph.name[0]}</span>)}</div>
-            <div className="plist">
+            {/* a card per block (the owner's sketch): block, cadastre, start · on sale · handover, progress — the
+                block pointed at in the view (or at its tag) lights its card up and brings it into sight */}
+            <div className="pcards">
               {BLOCKS.map((b, i) => {
-                const p = cp.ps[i];
+                const p = cp.ps[i], info = blockInfo(b.id);
                 return (
-                  <button key={b.id} onClick={() => onOpen(b.id)} title={TYPE4.includes(b.id) ? 'Blokka kirish — "Qurilish" rejimida shu bosqichni ko‘rish mumkin' : ''}>
-                    <b>{b.id}</b>
-                    <span className="pb"><i style={{ width: p.pct + '%', background: PHASES[p.phase].color }} /></span>
-                    <em>{p.pct}%</em>
-                    <small><span>{p.done ? 'tayyor' : PHASES[p.phase].name[0]}{!p.done && p.stage > 0 && p.frame < 16 ? ` · ${Math.floor(p.frame)}/16 qavat` : ''}</span><span className="fin">{p.done ? '' : 'topshirish: ' + monthLabel(p.finish)}</span></small>
+                  <button key={b.id} ref={(e) => { if (e) cardRefs.current.set(b.id, e); else cardRefs.current.delete(b.id); }}
+                    className={'pcard' + (hover?.id === b.id ? ' on' : '')} style={{ '--c': PHASES[p.phase].color } as React.CSSProperties}
+                    onClick={() => onOpen(b.id)} onMouseEnter={() => scene.current?.pointBlock(b.id)} onMouseLeave={() => scene.current?.pointBlock(null)}
+                    title={TYPE4.includes(b.id) ? 'Blokka kirish — "Qurilish" rejimida shu bosqichni ko‘rish mumkin' : 'Blokka kirish'}>
+                    <span className="hd"><b>{b.id}-blok</b>
+                      {info.cadastre ? <span className="kad ok" title="Kadastrdan o‘tgan (namunaviy)">✓ Kadastr</span>
+                        : <span className="kad" title="Kadastr rasmiylashtirilmoqda (namunaviy)">Kadastr jarayonda</span>}</span>
+                    <span className="cells">
+                      <span><small>Qurilish</small><b>{monthLabel(info.start)}</b></span>
+                      <span><small>Sotuvga chiqdi</small><b>{monthLabel(info.sale)}</b></span>
+                      <span><small>Tugash</small><b>{monthLabel(info.finish)}</b></span>
+                    </span>
+                    <span className="bar"><i style={{ width: p.pct + '%' }} /></span>
+                    <span className="ft"><span>{p.done ? 'Topshirildi' : PHASES[p.phase].name[0]}{!p.done && p.stage > 0 && p.frame < 16 ? ` · ${Math.floor(p.frame)}/16 qavat` : ''}</span><b>{p.pct}%</b></span>
                   </button>
                 );
               })}

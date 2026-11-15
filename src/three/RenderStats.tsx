@@ -5,6 +5,8 @@ import { renderStats as S } from './stats';
 import { getMode } from '../mode';
 
 const KEY = 'om-render';          // new key: the panel starts closed also where the old one ('om-stats') was left open
+/** the left-edge panels (Render, Yaqinda) say when one opens — the other one closes */
+export const LEFT_EVENT = 'om-left-panel';
 type Gpu = { name: string } | null;
 
 let gpuInfo: Promise<Gpu> | null = null;
@@ -30,6 +32,13 @@ export default function RenderStats({ place = 'top' }: { place?: 'top' | 'bottom
   useEffect(() => { void adapter().then(setGpu); }, []);
   useEffect(() => { const id = setInterval(() => tick((t) => t + 1), 500); return () => clearInterval(id); }, []);
   useEffect(() => { try { localStorage.setItem(KEY, open ? '1' : '0'); } catch { /* blocked */ } }, [open]);
+  // one left panel open at a time ("Yaqinda" shares the edge, NearbyPanel.tsx)
+  useEffect(() => {
+    if (open) dispatchEvent(new CustomEvent(LEFT_EVENT, { detail: 'render' }));
+    const other = (e: Event) => { if ((e as CustomEvent).detail !== 'render') setOpen(false); };
+    addEventListener(LEFT_EVENT, other);
+    return () => removeEventListener(LEFT_EVENT, other);
+  }, [open]);
 
   const fps = S.fps(), frameMs = fps ? 1000 / fps : 0;
   const busy = S.gpuMs !== null && frameMs ? Math.min(100, (S.gpuMs / frameMs) * 100) : null;
@@ -78,7 +87,7 @@ export default function RenderStats({ place = 'top' }: { place?: 'top' | 'bottom
     </div>
     <button className="rs-tab" onClick={() => setOpen(!open)} aria-expanded={open} title={open ? 'Render panelini yopish' : 'Render ko‘rsatkichlari'}>
       <span aria-hidden>{open ? '‹' : '›'}</span>
-      {!open && <><b>Render</b><em className={tone}>{idle ? '—' : fps.toFixed(0)}</em></>}
+      <b>Render</b>{!open && <em className={tone}>{idle ? '—' : fps.toFixed(0)}</em>}
     </button>
     </div>
   );

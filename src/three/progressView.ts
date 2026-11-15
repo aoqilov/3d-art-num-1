@@ -1,6 +1,7 @@
 // Live construction view of the complex: every block drawn as built on the chosen date — pit and piles, the
 // monolithic frame floor by floor, aerated-block walls, facade from the top down — with a working tower crane
-// and a progress badge. Blocks whose exterior is finished keep their normal model (ComplexScene shows it).
+// (each block's card over it: blockCards.ts). Blocks whose exterior is finished keep their normal model (ComplexScene
+// shows it).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BLOCKS, FLOORS, FLOOR_H, GROUND_H, type BlockDef } from '../data/blocks';
@@ -42,15 +43,17 @@ function aeratedTex() {
   t.repeat.set(1 / 1.2, 1 / 0.4);   // 600 × 200 blocks
   return t;
 }
-/** finished facade: plaster with dark window openings, one bay 3.2 m × one floor */
-function facadeTex() {
+/** scaffold net over the floors still waiting for their facade: green mesh (see-through a little), a deck at every
+ *  floor, a standard every 2 m — one tile 2 m × one floor */
+function netTex() {
   const c = document.createElement('canvas'); c.width = 128; c.height = 96;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#f2efe8'; g.fillRect(0, 0, 128, 96);
-  g.fillStyle = '#4f6a80'; g.fillRect(24, 22, 80, 56);
-  g.fillStyle = '#c9b48a'; g.fillRect(0, 0, 128, 7);
+  g.fillStyle = 'rgba(34,86,54,.8)'; g.fillRect(0, 0, 128, 96);
+  g.strokeStyle = 'rgba(140,190,140,.22)'; g.lineWidth = 1;
+  for (let i = -96; i < 128; i += 5) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 96, 96); g.stroke(); g.beginPath(); g.moveTo(i + 96, 0); g.lineTo(i, 96); g.stroke(); }
+  g.fillStyle = 'rgba(176,178,170,.95)'; g.fillRect(0, 0, 128, 5); g.fillRect(0, 0, 4, 96);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
-  t.repeat.set(1 / 3.2, 1 / FLOOR_H); t.offset.y = -GROUND_H / FLOOR_H;
+  t.repeat.set(1 / 2, 1 / FLOOR_H); t.offset.y = -GROUND_H / FLOOR_H;
   return t;
 }
 
@@ -58,7 +61,6 @@ type Crane = { pivot: THREE.Group; phase: number; speed: number };
 
 export class ProgressView {
   readonly group = new THREE.Group();
-  readonly labels = new THREE.Group();          // goes into the overlay scene
   private body = new THREE.Group();
   private cranes: Crane[] = [];
   private t = 0;
@@ -66,8 +68,7 @@ export class ProgressView {
     conc: new THREE.MeshStandardMaterial({ color: '#b9b7b1', roughness: 0.9 }),
     form: new THREE.MeshStandardMaterial({ color: '#c58b3c', roughness: 0.8 }),
     wall: new THREE.MeshStandardMaterial({ map: aeratedTex(), roughness: 0.95 }),
-    facade: new THREE.MeshStandardMaterial({ map: facadeTex(), roughness: 0.85 }),
-    roof: new THREE.MeshStandardMaterial({ color: '#5a5d61', roughness: 0.9 }),
+    net: new THREE.MeshStandardMaterial({ map: netTex(), transparent: true, side: THREE.DoubleSide, roughness: 0.95 }),
     pit: new THREE.MeshStandardMaterial({ color: '#7a5d43', roughness: 1 }),
     ghost: new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.1, depthWrite: false }),
     edge: new THREE.LineBasicMaterial({ color: '#e3b878', transparent: true, opacity: 0.7 }),
@@ -76,36 +77,51 @@ export class ProgressView {
     weight: new THREE.MeshStandardMaterial({ color: '#8d8f91', roughness: 0.9 }),
     cable: new THREE.LineBasicMaterial({ color: '#333333' }),
   };
-  private badgeCache = new Map<string, THREE.CanvasTexture>();
   readonly state = new Map<number, Progress>();
 
   constructor() { this.group.add(this.body); }
 
-  /** exterior finished → the normal block model stays */
-  static finished(p: Progress) { return p.facade >= FLOORS - 1e-3 && p.windows >= FLOORS - 1e-3; }
+  /** the facade has begun (frame, walls and roof done): the block's real model shows — scaffold nets over the floors
+   *  still waiting for their facade, the crane until the windows — instead of the drawn stages (their plain facade
+   *  boxes looked like the old massing model) */
+  static showsModel(p: Progress) { return p.roof; }
 
-  update(mi: number, lang: 'uz' | 'ru' = 'uz') {
+  update(mi: number) {
     this.body.traverse((o) => { if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); });
-    this.body.clear(); this.labels.children.forEach((o) => (o as THREE.Sprite).material.dispose()); this.labels.clear(); this.cranes = [];
+    this.body.clear(); this.cranes = [];
     const byMat = new Map<keyof ProgressView['mats'], THREE.BufferGeometry[]>();
     const put = (m: keyof ProgressView['mats'], g: THREE.BufferGeometry, M: THREE.Matrix4) => { g.applyMatrix4(M); let a = byMat.get(m); if (!a) byMat.set(m, (a = [])); a.push(g); };
     const edges: number[] = [];
     for (const def of BLOCKS) {
       const p = progressAt(def.id, mi);
       this.state.set(def.id, p);
-      this.badge(def, p, lang);
-      if (ProgressView.finished(p)) continue;
+      if (p.done) continue;
       const M = new THREE.Matrix4().makeTranslation(def.x, 0, def.z).multiply(new THREE.Matrix4().makeRotationY(def.rot));
-      this.block(def, p, M, put, edges);
+      if (ProgressView.showsModel(p)) this.dressing(def, p, M, put);
+      else this.block(def, p, M, put, edges);
     }
     for (const [m, list] of byMat) {
       const mesh = new THREE.Mesh(mergeGeometries(list, false), this.mats[m]);
-      mesh.castShadow = m !== 'ghost'; mesh.receiveShadow = m !== 'ghost';
+      mesh.castShadow = m !== 'ghost' && m !== 'net'; mesh.receiveShadow = m !== 'ghost';
       this.body.add(mesh);
       list.forEach((g) => g.dispose());
     }
     const e = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(edges, 3)), this.mats.edge);
     this.body.add(e);
+  }
+
+  /** around the real model: the net from the ground up to the lowest floor with its facade (open top and bottom), and
+   *  the crane while the facade goes on */
+  private dressing(def: BlockDef, p: Progress, M: THREE.Matrix4, put: (m: keyof ProgressView['mats'], g: THREE.BufferGeometry, M: THREE.Matrix4) => void) {
+    const bare = FLOORS - Math.floor(p.facade + 1e-6);          // floors without facade yet (it goes on from the top)
+    if (bare > 0) {
+      const w = def.w / 2 + 1.9, d = def.d / 2 + 1.9, g = box(-w, 0, -d, w, fy1(bare) + 0.6, d);   // outside the balconies
+      const idx = g.getIndex()!.array;
+      g.setIndex([...Array.from(idx.slice(0, 12)), ...Array.from(idx.slice(24, 36))]);   // the four sides only (BoxGeometry: ±x, ±y, ±z)
+      g.clearGroups();
+      put('net', g, M);
+    }
+    if (p.stage < 6.5) this.crane(def, p, M);
   }
 
   private block(def: BlockDef, p: Progress, M: THREE.Matrix4, put: (m: keyof ProgressView['mats'], g: THREE.BufferGeometry, M: THREE.Matrix4) => void, edges: number[]) {
@@ -145,14 +161,11 @@ export class ProgressView {
       if (f <= full) put('conc', box(-w, y1 - 0.25, -d, w, y1, d), M);
       else put('form', box(-w, y0 + h, -d, w, y0 + h + 0.12, d), M);     // formwork table of the next slab
     }
-    // walls (bottom up) and facade (top down, once the frame is complete)
+    // walls, bottom up (from the facade on, the real model shows: dressing())
     for (let f = 1; f <= FLOORS; f++) {
       const y0 = fy0(f), y1 = fy1(f) - 0.25;
-      const facade = f > FLOORS - p.facade;
-      if (facade && f <= full) put('facade', box(-w - 0.08, y0, -d - 0.08, w + 0.08, y1 + 0.25, d + 0.08), M);
-      else if (f <= p.walls && f <= full) put('wall', box(-w + 0.05, y0, -d + 0.05, w - 0.05, y1, d - 0.05), M);
+      if (f <= p.walls && f <= full) put('wall', box(-w + 0.05, y0, -d + 0.05, w - 0.05, y1, d - 0.05), M);
     }
-    if (p.roof && full >= FLOORS) put('roof', box(-w - 0.4, TOP_Y, -d - 0.4, w + 0.4, TOP_Y + 0.8, d + 0.4), M);
     // tower crane while the frame and walls go up
     if (p.stage > 0.6 && p.stage < 6.5) this.crane(def, p, M);
   }
@@ -192,34 +205,6 @@ export class ProgressView {
     this.cranes.push({ pivot, phase: def.id * 1.7, speed: 0.12 + (def.id % 5) * 0.03 });
   }
 
-  /** badge above the block: progress ring in the phase colour, percent and block number */
-  private badge(def: BlockDef, p: Progress, lang: 'uz' | 'ru') {
-    const key = `${def.id}-${p.pct}-${p.phase}-${lang}`;
-    let tex = this.badgeCache.get(key);
-    if (!tex) {
-      const c = document.createElement('canvas'); c.width = 256; c.height = 300;
-      const g = c.getContext('2d')!;
-      const col = PHASES[p.phase].color;
-      g.fillStyle = 'rgba(14,51,38,.92)'; g.beginPath(); g.arc(128, 128, 112, 0, Math.PI * 2); g.fill();
-      g.lineWidth = 18; g.strokeStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.arc(128, 128, 96, 0, Math.PI * 2); g.stroke();
-      g.strokeStyle = col; g.lineCap = 'round'; g.beginPath(); g.arc(128, 128, 96, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.01, p.pct / 100)); g.stroke();
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.font = '700 64px Montserrat, system-ui, sans-serif'; g.fillText(p.pct + '%', 128, 118);
-      g.font = '600 32px Montserrat, system-ui, sans-serif'; g.fillStyle = '#e3b878'; g.fillText(lang === 'ru' ? `блок ${def.id}` : `${def.id}-blok`, 128, 172);
-      g.fillStyle = col; g.beginPath(); g.roundRect(18, 252, 220, 44, 22); g.fill();
-      g.fillStyle = '#10261e'; g.font = '700 24px Montserrat, system-ui, sans-serif';
-      const name = PHASES[p.phase].name[lang === 'ru' ? 1 : 0];
-      g.fillText(name.length > 17 ? name.slice(0, 16) + '…' : name, 128, 275);
-      tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-      this.badgeCache.set(key, tex);
-    }
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, toneMapped: false, sizeAttenuation: false }));
-    s.scale.set(0.062, 0.062 * 300 / 256, 1); s.renderOrder = 10;   // constant size on screen
-    s.center.set(0.5, 0);
-    s.position.set(def.x, TOP_Y + 6, def.z);
-    this.labels.add(s);
-  }
-
   tick(dt: number) {
     this.t += dt;
     for (const c of this.cranes) c.pivot.rotation.y = c.phase + Math.sin(this.t * c.speed + c.phase) * 1.4;
@@ -227,6 +212,5 @@ export class ProgressView {
 
   dispose() {
     this.body.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
-    this.badgeCache.forEach((t) => t.dispose());
   }
 }

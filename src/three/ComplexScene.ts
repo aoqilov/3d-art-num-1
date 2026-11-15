@@ -13,6 +13,8 @@ import { SUN_DAY, daylight, sunDir } from './sun';
 import { FACADE_NIGHT, facadeGlow } from '../block/nightLights';
 import { BAKE_AO, enableBakedAO, materials } from '../block/materials';
 import { createRenderer, keepAboveGround, orbitDamping, type Renderer } from './gpu';
+import { NearbyLayer, type NearbyPlace } from './nearbyLayer';
+import { BlockTags } from './blockTags';
 import { DEFAULT_HOUR, HourGlide } from './timeStops';
 import { CSMShadowNode } from 'three/examples/jsm/csm/CSMShadowNode.js';
 import { ClusteredLighting } from 'three/examples/jsm/lighting/ClusteredLighting.js';
@@ -154,6 +156,7 @@ export class ComplexScene {
   private clouds = new CloudDome();
   private yard: Yard | null = null;
   private prog: ProgressView | null = null;
+  private cards: BlockTags | null = null;
   private progOn = false;
   private matVis = new Map<THREE.Material, boolean>();
   private lastT = performance.now();
@@ -238,7 +241,8 @@ export class ComplexScene {
     this.scene.background = new THREE.Color('#cfdde6');
     this.scene.fog = new THREE.Fog('#cfdde6', 380, 900);
 
-    this.camera = new THREE.PerspectiveCamera(42, 1, 1, 6000);     // the outer city reaches ~1.8 km
+    // the outer city reaches ~1.8 km; the "Yaqinda" places 5 km (a view from above them reaches ~9 km)
+    this.camera = new THREE.PerspectiveCamera(42, 1, 1, 16000);
     this.camera.position.set(190, 170, 230);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -257,8 +261,9 @@ export class ComplexScene {
     this.addLights();
     this.addGround();
     BLOCKS.forEach((b) => this.addBlock(b));
-    this.addType4();
-    this.initContext();
+    const model = this.addType4();
+    const ctx = this.initContext();
+    this.loaded = Promise.all([model, ctx.then(() => Promise.all([this.ctx?.glb?.ready, this.court?.glb?.ready]))]).then(() => {}, () => {});
     if (PRO.create) {
       // PRO build: HDR sky, PBR textures, AO, bloom
       this.pro = PRO.create({
@@ -318,7 +323,8 @@ export class ComplexScene {
   private addGround() {
     // the free land between the streets and houses: earth and grass photo textures (ground.ts)
     this.ground = groundMaterial();
-    const base = (this.base = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), this.ground.material));
+    // 14 km square: the ground under the 5 km "Yaqinda" ring and around it
+    const base = (this.base = new THREE.Mesh(new THREE.PlaneGeometry(14000, 14000), this.ground.material));
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.05;
     base.receiveShadow = true;
@@ -428,8 +434,8 @@ export class ComplexScene {
   }
 
   /** Detailed type-4 blocks (1,2,12,13,15,16,18) as one InstancedMesh built from the drawings. */
-  private addType4() {
-    if (!this.type4.length) return;
+  private addType4(): Promise<unknown> {
+    if (!this.type4.length) return Promise.resolve();
     const mb = mergedBlock(true);
     if (BLOCK_GLB) {
       // the materials get the baked-occlusion input now, so the model's arrival swaps geometry only (no second
@@ -460,7 +466,8 @@ export class ComplexScene {
     inst.computeBoundingSphere();
     this.scene.add(inst);
     // Blender model with baked contact shadows replaces the drawn geometry once it has arrived (desktop)
-    if (BLOCK_GLB && realTreesOk()) void loadBlockGlb().then((g) => {
+    if (!BLOCK_GLB || !realTreesOk()) return Promise.resolve();
+    return loadBlockGlb().then((g) => {
       if (!g || this.inst !== inst) return;
       const ms = g.names.map((n) => (n === 'glass' ? this.glassNight! : lib[n]));
       if (ms.some((x) => !x)) return;
@@ -695,18 +702,22 @@ export class ComplexScene {
 
   // ---------- live construction progress ----------
   /** mi: month index on the construction timeline (null = off). Blocks under construction are drawn as built. */
-  setProgress(mi: number | null, lang: 'uz' | 'ru' = 'uz') {
+  setProgress(mi: number | null) {
     const on = mi !== null;
-    if (on && !this.prog) { this.prog = new ProgressView(); this.scene.add(this.prog.group); this.overlay.add(this.prog.labels); }
-    if (this.prog) { this.prog.group.visible = on; this.prog.labels.visible = on; }
+    if (on && !this.prog) {
+      this.prog = new ProgressView(); this.scene.add(this.prog.group);
+      this.cards = new BlockTags(this.el, (id) => this.cb.onSelect(id), (id) => this.setHover(id, 0, 0));
+    }
+    if (this.prog) this.prog.group.visible = on;
+    this.cards?.setVisible(on);
     this.progOn = on;
-    if (on) this.prog!.update(mi!, lang);
+    if (on) { this.prog!.update(mi!); this.cards!.update(this.prog!.state); }
     this.labels.forEach((l) => (l.visible = !on && this.selected === null));
-    // blocks still being built hide their finished model (kept as invisible pick proxies)
+    // blocks still being built hide their finished model (kept as invisible pick proxies) until their facade begins
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (const b of this.blocks) {
       const p = on ? this.prog!.state.get(b.def.id) : undefined;
-      const hide = !!p && !ProgressView.finished(p);
+      const hide = !!p && !ProgressView.showsModel(p);
       for (const mesh of [b.tower, b.podium, b.cap]) {
         const ms = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.Material[];
         for (const m of ms) {
@@ -720,7 +731,7 @@ export class ComplexScene {
     if (this.inst) {
       this.type4.forEach((d, i) => {
         const p = on ? this.prog!.state.get(d.id) : undefined;
-        const hide = (!!p && !ProgressView.finished(p)) || (this.selected !== null && d.id !== this.selected);
+        const hide = (!!p && !ProgressView.showsModel(p)) || (this.selected !== null && d.id !== this.selected);
         this.inst!.setMatrixAt(i, hide ? zero : this.instMats[i]);
       });
       this.inst.instanceMatrix.needsUpdate = true;
@@ -728,6 +739,8 @@ export class ComplexScene {
     }
   }
   progressOf(id: number) { return this.progOn ? this.prog?.state.get(id) ?? null : null; }
+  /** light a block up as if pointed at (a row of the side panel is) */
+  pointBlock(id: number | null) { this.setHover(id, 0, 0); }
 
   resetView() { this.setSelected(null); }
   /** Jump straight to the camera goal (tests / reduced motion). */
@@ -743,14 +756,63 @@ export class ComplexScene {
     this.boxEl?.remove();
     this.ro.disconnect();
     this.controls.dispose();
-    this.prog?.dispose(); this.clouds.dispose();
+    this.prog?.dispose(); this.cards?.dispose(); this.clouds.dispose();
     LAMP_LIGHTS.real = false;
     this.pro?.dispose(); this.sky?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
 
+  /** the first look has arrived: the block model, the surroundings, the courtyard, the outer city, the trees (the
+   *  loading clouds part after it, loader.ts) */
+  readonly loaded!: Promise<void>;
+
+  // ---------- "Yaqinda": places around the complex (NearbyPanel) ----------
+  private nearby: NearbyLayer | null = null;
+  /** a pin was clicked in the view */
+  onNearbyPick: ((p: NearbyPlace) => void) | null = null;
+  /** rings up to `radius`, pins of `places`, the chosen one marked; null = the layer off */
+  setNearby(s: { radius: number; places: NearbyPlace[]; selected: string | null } | null) {
+    if (!s) {
+      if (this.nearby) { this.nearby.clear(); this.scene.remove(this.nearby.ground); this.overlay.remove(this.nearby.pins); this.nearby = null; }
+      this.controls.maxDistance = this.outerEdit ? 2200 : this.outer ? 900 : 520;
+    } else {
+      if (!this.nearby) { this.nearby = new NearbyLayer(); this.scene.add(this.nearby.ground); this.overlay.add(this.nearby.pins); }
+      this.nearby.set(s.radius, s.places, s.selected);
+      this.controls.maxDistance = Math.max(900, s.radius * 2.2);     // room to step back and see the whole ring
+    }
+    this.wake(1500);
+  }
+  /** fly to a place: from beyond it and above, looking back toward the complex — the place in the lower middle, the
+   *  gold line leading from it to the complex further up the frame (farther places from higher up) */
+  focusNearby(p: NearbyPlace) {
+    const d = Math.max(1, Math.hypot(p.x, p.z)), dir = new THREE.Vector3(p.x / d, 0, p.z / d);
+    const target = new THREE.Vector3(p.x * 0.7, 0, p.z * 0.7);
+    const back = 60 + d * 0.35;
+    this.flyTo(new THREE.Vector3(p.x, 0, p.z).addScaledVector(dir, back).setY(70 + d * 0.35), target);
+    this.wake(3000);
+  }
+  /** a whole ring in view (the panel's radius changed) */
+  showRadius(r: number) {
+    const target = new THREE.Vector3(0, 0, 0);
+    this.flyTo(new THREE.Vector3(r * 0.55, Math.max(260, r * 1.35), r * 0.75), target);
+    this.wake(3000);
+  }
+
   // ---------- internals ----------
+  /** the page's boxes over the view (header, open side panels) in view pixels — the badges keep out of them; read
+   *  again every 300 ms */
+  private ui: { t: number; r: number[][] } = { t: -1e9, r: [] };
+  private uiBoxes(now: number) {
+    if (now - this.ui.t < 300) return this.ui.r;
+    const o = this.el.getBoundingClientRect(), r: number[][] = [];
+    document.querySelectorAll('.top .c-glass, #side-panel:not(.shut), .panel-tab, .rs-dock:not(.shut) .rstats, .nb-dock:not(.shut) .nb-panel').forEach((e) => {
+      const b = e.getBoundingClientRect();
+      if (b.width && b.height) r.push([b.left - o.left, b.top - o.top, b.right - o.left, b.bottom - o.top]);
+    });
+    this.ui = { t: now, r };
+    return r;
+  }
   private flyTo(pos: THREE.Vector3, target: THREE.Vector3) {
     this.camGoal = { pos, target };
   }
@@ -815,6 +877,10 @@ export class ComplexScene {
       return;
     }
     if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 5) return; // it was a drag
+    if (this.nearby && this.onNearbyPick) {
+      const p = this.nearby.pick(e.clientX, e.clientY, this.camera, this.renderer.domElement.getBoundingClientRect());
+      if (p) { this.onNearbyPick(p); return; }
+    }
     if (this.outerEdit && this.outer) {
       const id = this.outerPick(e.clientX, e.clientY);
       if (id >= 0) { this.outer.toggle(id, e.shiftKey); this.outerEdit(this.outer.picks.size); }
@@ -883,7 +949,16 @@ export class ComplexScene {
     this.controls.dampingFactor = orbitDamping(dt);
     this.controls.update();
     if (keepAboveGround(this.camera.position, this.controls.target, 2)) this.dirty = true;
-    if (this.progOn) { this.prog?.tick(dt); this.dirty = true; }        // the cranes turn
+    // haze with the viewing distance: the usual 0.6–2.6 km close by, pushed out when looking at a far place or a
+    // whole 5 km ring from above (it hid everything there)
+    if (this.outer) {
+      const fog = this.scene.fog as THREE.Fog, d = this.camera.position.distanceTo(this.controls.target);
+      fog.near = Math.max(600, d * 0.7); fog.far = Math.max(2600, d * 3);
+    }
+    if (this.progOn) {                                                   // the cranes turn; the badges make room
+      this.prog?.tick(dt); this.dirty = true;
+      this.cards?.place(this.camera, this.el.clientWidth, this.el.clientHeight, this.uiBoxes(now), this.hovered);
+    }
     if (this.glide.tick(dt)) this.applyHour(this.glide.hour, this.glide.moving);
     if (!this.ready) return;
     // nothing changed and the Ultra pipeline has settled: no frame (the GPU idles)

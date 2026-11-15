@@ -9,8 +9,281 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="app.css" />
+<style>
+/* loading clouds (src/loader.ts): two banks close in from the sides over a spinner, part when the view is ready */
+#ld { position: fixed; inset: 0; z-index: 100; overflow: hidden; }
+#ld.open { pointer-events: none; }
+#ld.gone { display: none; }
+#ld .ld-sky { position: absolute; inset: 0; background: linear-gradient(180deg, #7fa9d1 0%, #b4cde3 45%, #dde8f0 100%); transition: opacity .6s ease; }
+#ld.open .ld-sky { opacity: 0; transition: opacity .9s ease .2s; }
+#ld .ld-side { position: absolute; top: -6vh; height: 112vh; width: 72vw; will-change: transform; }   /* 4vw past the screen's edge: room to drift */
+#ld .ld-l { left: -4vw; transform-origin: 100% 50%; animation: ld-in-l 1.1s cubic-bezier(.2,.75,.25,1) both; }
+#ld .ld-r { right: -4vw; transform-origin: 0 50%; animation: ld-in-r 1.1s cubic-bezier(.2,.75,.25,1) both; }
+#ld:not(.ready) .ld-side { animation-play-state: paused; }       /* off-screen until the clouds are drawn */
+#ld.open .ld-l { animation: ld-out-l 1.6s cubic-bezier(.55,0,.25,1) both; }
+#ld.open .ld-r { animation: ld-out-r 1.6s cubic-bezier(.55,0,.25,1) both; }
+#ld canvas { display: block; width: 100%; height: 100%; animation: ld-drift 7s ease-in-out infinite alternate; }
+#ld .ld-r canvas { transform: scaleX(-1); animation-name: ld-drift-r; }
+@keyframes ld-in-l { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes ld-in-r { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes ld-out-l { to { transform: translateX(-100%) scale(1.18); } }
+@keyframes ld-out-r { to { transform: translateX(100%) scale(1.18); } }
+@keyframes ld-drift { to { transform: translateX(1.2vw) scale(1.015); } }
+@keyframes ld-drift-r { to { transform: scaleX(-1) translateX(1.2vw) scale(1.015); } }
+#ld .ld-mid { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 14px;
+  animation: ld-mid-in .5s ease .55s both; transition: opacity .35s ease, transform .35s ease; }
+#ld.open .ld-mid { opacity: 0; transform: translate(-50%, -50%) scale(.92); }
+@keyframes ld-mid-in { from { opacity: 0; transform: translate(-50%, -46%); } }
+#ld .ld-ring { position: relative; width: 104px; height: 104px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(9, 40, 29, .86); box-shadow: 0 10px 34px rgba(30, 50, 80, .3); }
+#ld .ld-ring::before { content: ''; position: absolute; inset: 5px; border-radius: 50%; border: 3px solid rgba(226, 199, 133, .18);
+  border-top-color: #e2c785; border-right-color: rgba(226, 199, 133, .55); animation: ld-spin .95s linear infinite; }
+#ld .ld-ring img { width: 46px; height: auto; }
+@keyframes ld-spin { to { transform: rotate(360deg); } }
+#ld .ld-txt { font: 600 12px/1.2 Montserrat, system-ui, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #0a271d;
+  padding: 7px 14px; border-radius: 999px; background: rgba(255, 255, 255, .55); }
+@media (prefers-reduced-motion: reduce) {
+  #ld .ld-l, #ld .ld-r, #ld.open .ld-l, #ld.open .ld-r, #ld canvas { animation-duration: .01s; }
+  #ld .ld-ring::before { animation-duration: 2.4s; }
+}
+</style>
 </head>
 <body>
+<div id="ld" role="status" aria-label="Yuklanmoqda">
+  <div class="ld-sky"></div>
+  <div class="ld-side ld-l"><canvas></canvas></div>
+  <div class="ld-side ld-r"><canvas></canvas></div>
+  <div class="ld-mid"><div class="ld-ring"><img src="logo.png" alt="" /></div><span class="ld-txt">Yuklanmoqda</span></div>
+</div>
+<script type="x-shader/x-fragment" id="ld-fs">#version 300 es
+// one cloud bank, volumetric: orthographic rays into a slab of 3D fractal noise (x: from the bank's outer side
+// toward the screen's centre, y: up, z: away), front to back, the light's way to the sun marched for each sample
+precision highp float;
+uniform vec2 uRes;
+uniform float uSeed;
+uniform int uN;
+out vec4 o;
+float A;
+
+float hash(vec3 p) {
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973) + uSeed * 0.0713);
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+float noise(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p, int n) {
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 6; i++) {
+    if (i >= n) break;
+    s += a * noise(p);
+    p = p * 2.02 + vec3(3.1, 1.7, 5.3);
+    a *= 0.5;
+  }
+  return s;
+}
+// billowy noise: |2n − 1| per octave — round swellings with creases between them, the cauliflower of a cumulus; each
+// octave turned (an orthonormal turn) so the lattice of the value noise does not show as boxes
+const mat3 TURN = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+float billow(vec3 p, int n) {
+  float s = 0.0, a = 0.5;
+  p = TURN * p;
+  for (int i = 0; i < 6; i++) {
+    if (i >= n) break;
+    s += a * abs(2.0 * noise(p) - 1.0);
+    p = TURN * p * 2.03 + vec3(3.1, 1.7, 5.3);
+    a *= 0.5;
+  }
+  return s;
+}
+// the bank: solid on its outer side, its front (toward the centre) pushed in and out in big heads, rounded front to
+// back; the billows break the surface into heads, a finer fractal tears the rims
+float density(vec3 p, int n) {
+  float front = A * (0.64 + 0.18 * noise(vec3(p.y * 2.0, p.z * 2.0, uSeed)));   // past the screen's middle
+  float body = (front - p.x) * 2.4 - max(0.0, abs(p.z) - 0.2) * 4.0;
+  float raw = body + (billow(p * 2.6 + vec3(uSeed), n) - 0.42) * 1.9;
+  return smoothstep(0.0, 0.3, raw);
+}
+void main() {
+  A = uRes.x / uRes.y;
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec3 ro = vec3(uv.x * A, uv.y, -0.75), rd = vec3(0.0, 0.0, 1.0);
+  vec3 L = normalize(vec3(0.45, 0.8, -0.12));               // the sun: high, toward the centre, a little in front
+  float dt = 1.5 / float(uN), t = 0.5 * dt;
+  float T = 1.0;
+  vec3 C = vec3(0.0);
+  for (int i = 0; i < 256; i++) {
+    if (i >= uN || T < 0.01) break;
+    vec3 p = ro + rd * t;
+    float d = density(p, 5);
+    if (d > 0.003) {
+      float od = 0.0, s = 0.02;
+      vec3 q = p;
+      for (int j = 0; j < 6; j++) { q += L * s; od += density(q, 3) * s; s *= 1.55; }
+      float sun = exp(-od * 10.0);                            // the light that reaches it through the cloud
+      float powder = 1.0 - exp(-d * 4.0);
+      vec3 amb = mix(vec3(0.50, 0.57, 0.68), vec3(0.80, 0.87, 0.97), clamp(p.y * 0.85 + 0.1, 0.0, 1.0));
+      vec3 col = vec3(1.0, 0.97, 0.92) * 2.4 * sun * (0.55 + 0.45 * powder) + amb * 0.8;
+      float a = 1.0 - exp(-d * dt * 60.0);
+      C += T * a * col;
+      T *= 1.0 - a;
+    }
+    t += dt;
+  }
+  float al = 1.0 - T;
+  vec3 c = al > 0.0 ? C / al : vec3(0.0);
+  c = pow(1.0 - exp(-c * 0.95), vec3(0.4545));
+  o = vec4(c * al, al);
+}
+</script>
+<script>
+// the two cloud banks, drawn once at half resolution (soft clouds lose nothing). A bank is a heap of round heads —
+// big ones over the body, smaller and smaller toward the leading edge — seen as a height field: the nearest head
+// at each pixel gives the surface and its normal, the normal is wrinkled by noise, lit from above with a soft wrap,
+// shadowed where a head nearer the light stands higher (screen-space height shadows), silver at the thin rims
+(function () {
+  var cvs = document.querySelectorAll('#ld canvas');
+  var S = 0.5, W = Math.ceil(innerWidth * 0.72 * S), H = Math.ceil(innerHeight * 1.12 * S);
+  function rng(s) { return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function bank(cv, seed) {
+    var r = rng(seed), N = 128, g = new Float32Array(N * N), i, x, y, k;
+    for (i = 0; i < N * N; i++) g[i] = r();
+    function noise(px, py) {
+      var xi = Math.floor(px), yi = Math.floor(py), fx = px - xi, fy = py - yi;
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      var x0 = xi & 127, y0 = yi & 127, x1 = (x0 + 1) & 127, y1 = (y0 + 1) & 127;
+      var a = g[y0 * N + x0], b = g[y0 * N + x1], c = g[y1 * N + x0], d = g[y1 * N + x1];
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    }
+    var P = [], u, v, m;
+    for (v = -0.06; v < 1.14; v += 0.2) for (u = 0.0; u < 0.6; u += 0.15)               // the body
+      P.push([u + (r() - 0.5) * 0.08, v + (r() - 0.5) * 0.08, 0.15 + r() * 0.09, -0.2 + r() * 0.2]);
+    for (i = 0; i < 13; i++) P.push([0.58 + r() * 0.1, -0.04 + i * 0.088 + (r() - 0.5) * 0.04, 0.08 + r() * 0.06, r() * 0.25]);   // the leading edge
+    var big = P.length;
+    for (i = 0; i < 14; i++) P.push([0.66 + r() * 0.12, r() * 1.06 - 0.03, 0.04 + r() * 0.04, 0.1 + r() * 0.3]);
+    // cauliflower: smaller heads on the upper side of each big head, a little nearer
+    for (m = big, i = 0; i < m; i++) for (k = 0; k < 3; k++) {
+      var an = -Math.PI * (0.12 + r() * 0.76), pr = P[i][2], cr = pr * (0.38 + r() * 0.2), dd = pr * (0.55 + r() * 0.25);
+      P.push([P[i][0] + Math.cos(an) * dd * H / W, P[i][1] + Math.sin(an) * dd, cr, P[i][3] + pr * 0.25]);
+    }
+    // heights: a soft union of the heads (log-sum-exp over k pixels), so they melt into each other
+    var n = W * H, Sx = new Float32Array(n), A = new Float32Array(n), K = 0.022 * H, Hs = new Float32Array(n);
+    for (k = 0; k < P.length; k++) {
+      var cx = P[k][0] * W, cy = P[k][1] * H, R = P[k][2] * H, zc = P[k][3] * H, R2 = R * R;
+      var x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(W - 1, Math.ceil(cx + R)), y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(H - 1, Math.ceil(cy + R));
+      for (y = y0; y <= y1; y++) for (x = x0; x <= x1; x++) {
+        var q = ((x - cx) * (x - cx) + (y - cy) * (y - cy)) / R2;
+        if (q >= 1) continue;
+        var j = y * W + x, e = Math.min(1, (1 - q) / 0.3);
+        Sx[j] += Math.exp((zc + R * Math.sqrt(1 - q)) / K) * e * e * (3 - 2 * e);     // faded in from its rim: no seam
+        if (e > A[j]) A[j] = e;
+      }
+    }
+    // + a wrinkled surface (3 octaves of noise in the height itself)
+    var fh = 6 / H, amp = 0.012 * H, floor = Math.exp(-0.3 * H / K);
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      var j = y * W + x;
+      if (A[j] <= 0) continue;
+      var nn = noise(x * fh, y * fh) + 0.5 * noise(x * fh * 2.1 + 9, y * fh * 2.1) + 0.25 * noise(x * fh * 4.3, y * fh * 4.3 + 17);
+      Hs[j] = K * Math.log(Sx[j] + floor) + (nn - 0.87) * amp * 2;
+    }
+    // soften: two box-blur passes each way (a head standing on another leaves a soft crease, not a hairline)
+    var T = new Float32Array(n), BR = 3;
+    for (j = 0; j < n; j++) if (A[j] <= 0) Hs[j] = -0.1 * H;
+    for (var pass = 0; pass < 2; pass++) {
+      for (y = 0; y < H; y++) { var acc = 0, row = y * W; for (x = -BR; x < W; x++) { if (x + BR < W) acc += Hs[row + x + BR]; if (x - BR - 1 >= 0) acc -= Hs[row + x - BR - 1]; if (x >= 0) T[row + x] = acc / (Math.min(W - 1, x + BR) - Math.max(0, x - BR) + 1); } }
+      for (x = 0; x < W; x++) { var acc2 = 0; for (y = -BR; y < H; y++) { if (y + BR < H) acc2 += T[(y + BR) * W + x]; if (y - BR - 1 >= 0) acc2 -= T[(y - BR - 1) * W + x]; if (y >= 0) Hs[y * W + x] = acc2 / (Math.min(H - 1, y + BR) - Math.max(0, y - BR) + 1); } }
+    }
+    cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d'), img = ctx.createImageData(W, H), p = img.data;
+    var L = [0.15, -0.72, 0.68], ll = Math.hypot(L[0], L[1], L[2]); L = [L[0] / ll, L[1] / ll, L[2] / ll];
+    var lxy = Math.hypot(L[0], L[1]), sx = L[0] / lxy, sy = L[1] / lxy, rise = L[2] / lxy;
+    var steps = [3, 7, 12, 19, 28, 40, 56], f1 = 9 / H;
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      var j = y * W + x, a = A[j];
+      if (a <= 0) { p[j * 4 + 3] = 0; continue; }
+      var xl = x > 0 && A[j - 1] > 0 ? j - 1 : j, xr = x < W - 1 && A[j + 1] > 0 ? j + 1 : j;
+      var yu = y > 0 && A[j - W] > 0 ? j - W : j, yd = y < H - 1 && A[j + W] > 0 ? j + W : j;
+      var gx = (Hs[xr] - Hs[xl]) / Math.max(1, (xr - xl)), gy = (Hs[yd] - Hs[yu]) / Math.max(1, (yd - yu) / W);
+      var nl = Math.sqrt(gx * gx + gy * gy + 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl;
+      var dif = Math.max(0, (nx * L[0] + ny * L[1] + nz * L[2] + 0.35) / 1.35);
+      var sh = 0;
+      for (k = 0; k < steps.length; k++) {
+        var X = Math.round(x + sx * steps[k]), Y = Math.round(y + sy * steps[k]);
+        if (X < 0 || Y < 0 || X >= W || Y >= H) break;
+        var jj = Y * W + X;
+        if (A[jj] <= 0) continue;
+        var over = Hs[jj] - (Hs[j] + steps[k] * rise);
+        if (over > 0) sh = Math.max(sh, Math.min(1, over / 18));
+      }
+      var w1 = noise(x * f1 + 37, y * f1 + 11) - 0.5;
+      var lit = 0.36 + 0.64 * dif * (1 - 0.6 * sh) + 0.25 * Math.pow(1 - nz, 2) * (1 - a * 0.5);     // + silver at the rims
+      lit = Math.max(0, Math.min(1, lit)) * (1 - 0.1 * y / H);
+      p[j * 4] = 124 + 131 * lit; p[j * 4 + 1] = 140 + 115 * lit; p[j * 4 + 2] = 170 + 85 * lit;
+      a = Math.max(0, Math.min(1, a + w1 * 0.7 * (1 - a)));                                           // torn wisps at the rims
+      p[j * 4 + 3] = a * a * (3 - 2 * a) * 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  // volumetric clouds on the GPU (WebGL 2, drawn once per bank, then copied into the bank's canvas): a ray through a
+  // slab of 3D fractal noise shaped into a bank — solid on its outer side, its front torn into heads — light from the
+  // sun above and in front, its way through the cloud marched (self-shadow), a little powder darkening on the rims.
+  // The CPU heads above stay as the fallback (no WebGL 2, or the shader did not compile). The shader compiles in the
+  // driver's own thread where it can (KHR_parallel_shader_compile, ~0.35 s on ANGLE): the page meanwhile goes on with
+  // its bundle. done(ok) once the banks are in their canvases.
+  function gpuBanks(done) {
+    var gc = document.createElement('canvas'), gl, W = Math.ceil(innerWidth * 0.72 * 0.6), H = Math.ceil(innerHeight * 1.12 * 0.6);   // 0.6 of the screen's resolution
+    gc.width = W; gc.height = H;
+    try { gl = gc.getContext('webgl2', { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false }); } catch (e) { return done(false); }
+    if (!gl) return done(false);
+    var vs = '#version 300 es\nin vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+    var fs = document.getElementById('ld-fs').textContent;
+    function sh(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
+    var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr);
+    var par = gl.getExtension('KHR_parallel_shader_compile');
+    (function ready() {
+      if (par && !gl.getProgramParameter(pr, par.COMPLETION_STATUS_KHR)) return setTimeout(ready, 25);
+      try { done(gl.getProgramParameter(pr, gl.LINK_STATUS) && render(gl, gc, pr, W, H)); } catch (e) { done(false); }
+    })();
+  }
+  function render(gl, gc, pr, W, H) {
+    gl.useProgram(pr);
+    var b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(gl.getUniformLocation(pr, 'uRes'), W, H);
+    gl.uniform1i(gl.getUniformLocation(pr, 'uN'), 90);
+    gl.viewport(0, 0, W, H);
+    var seeds = [3.7, 11.2];
+    for (var i = 0; i < 2; i++) {
+      gl.uniform1f(gl.getUniformLocation(pr, 'uSeed'), seeds[i]);
+      gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      cvs[i].width = W; cvs[i].height = H;
+      var c2 = cvs[i].getContext('2d');
+      c2.filter = 'blur(0.7px)';                    // softens the step pattern of the march
+      c2.drawImage(gc, 0, 0);
+    }
+    var lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
+    return true;
+  }
+  // after the first paint (the sky and the spinner show at once): draw, then let the banks close in (#ld.ready)
+  function draw() {
+    var t0 = performance.now();
+    gpuBanks(function (ok) {
+      if (!ok) { bank(cvs[0], 20251115); bank(cvs[1], 7719); }
+      window.__ldGpu = !!ok; window.__ldMs = Math.round(performance.now() - t0);
+      window.__ldReadyAt = performance.now();
+      document.getElementById('ld').classList.add('ready');
+    });
+  }
+  requestAnimationFrame(function () { setTimeout(draw, 0); });
+})();
+</script>
 <div id="root"></div>
 <script type="module" src="app.js"></script>
 </body>

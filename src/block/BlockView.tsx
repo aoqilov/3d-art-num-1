@@ -24,6 +24,7 @@ import { Joy } from './ui/Joy';
 import { ADDRESS, CATS, PLACES, distance, type Cat } from '../data/nearby';
 import { PLAN_SIZE } from '../data/blocks';
 import { GALLERY, GAL_CATS, render3d, type GalCat } from '../data/gallery';
+import { loaderReveal } from '../loader';
 import './ui/block.css';
 
 type Apt = { storey: number; index: number; label: string; num: number; rooms: number; area: number; price: number; status: Status };
@@ -124,6 +125,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
     }, blockId);
     scene.current = s;
     (window as unknown as { __block: BlockScene }).__block = s;
+    loaderReveal(s.loaded);
     s.setHour(DEFAULT_HOUR, true);
     return () => s.dispose();
   }, [blockId]);

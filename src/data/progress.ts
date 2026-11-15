@@ -16,6 +16,8 @@ const START: Record<number, number> = {
   3: 7, 4: 7, 5: 8, 15: 9, 14: 10, 13: 10, 12: 11,       // phase 2: from 2025-10
   6: 14, 7: 15, 8: 16, 9: 17, 10: 18, 11: 19,           // phase 3: from 2026-05
 };
+/** the month (index from T0) a block's construction started */
+export const startMonth = (id: number) => START[id] ?? 0;
 /** measured stage values override the schedule (e.g. a block that is behind) */
 export const REPORTED: Partial<Record<number, number>> = { 13: 4.1 };
 

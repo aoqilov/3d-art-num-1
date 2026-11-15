@@ -214,7 +214,7 @@ export class BlockScene {
     // mirrors reflect an interior of their own, so they stay bright at night when the sky light is dimmed
     const mirror = furnitureMaterials().mirror as THREE.MeshStandardMaterial;
     mirror.envMapIntensity = 0.85; mirror.color.set('#dfe5e8');
-    void this.renderer.init().then(() => {
+    const init = this.renderer.init().then(() => {
       const room = new PMREMGenerator(this.renderer).fromScene(new RoomEnvironment(), 0.04).texture;
       mirror.envMap = room; mirror.needsUpdate = true;
       if (!this.pro) this.scene.environment = room;        // PRO lights the scene with its sky instead
@@ -275,8 +275,13 @@ export class BlockScene {
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(el);
     this.resize();
+    const sur = this.sur!;
+    this.loaded = Promise.all([init, sur.outerReady, sur.ready.then(() => Promise.all([sur.ctx?.glb?.ready, sur.court?.glb?.ready]))]).then(() => {}, () => {});
     this.loop();
   }
+  /** the first look has arrived: the renderer, the surroundings, the trees, the outer city (the loading clouds part
+   *  after it, loader.ts) */
+  readonly loaded!: Promise<void>;
 
   private addLights() {
     this.hemi = new THREE.HemisphereLight('#dfeaf6', '#8a8f7c', 0.75);
