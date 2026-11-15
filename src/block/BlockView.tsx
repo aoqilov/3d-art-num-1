@@ -18,6 +18,8 @@ import { LAYERS, STAGE_MAX, type ConPick, type Layer } from './construction';
 import { TODAY_M, progressAt } from '../data/progress';
 import { PlanSvg, floorPage, typePage } from './ui/PlanSvg';
 import { Lightbox, type Shot } from './ui/Lightbox';
+import { Pano360 } from './ui/Pano360';
+import { panoFor } from '../data/panos';
 import { Drawing } from './ui/Drawing';
 import { NearbyMap } from './ui/NearbyMap';
 import { Joy } from './ui/Joy';
@@ -57,6 +59,9 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
   const [hover, setHover] = useState<{ p: AptPick; x: number; y: number } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [lbox, setLbox] = useState<{ items: Shot[]; start: number } | null>(null);
+  const [pano, setPano] = useState<string | null>(null);
+  // ?pano=4 opens a flat's 360° rooms right away (a link a sales manager can send)
+  useEffect(() => { const q = new URLSearchParams(location.search).get('pano'); if (q && /^\d+$/.test(q)) setPano(`pano/apt${q}`); }, []);
   const [drw, setDrw] = useState<{ storey: number; apt: number | null } | null>(null);
   const drwLabel = lang === 'ru' ? 'Чертёж с размерами' : 'O‘lchamli chizma';
   const [place, setPlace] = useState<string | null>(null);
@@ -314,6 +319,9 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
               <h4>{t.roomList}</h4>
               <ul className="rooms">{aptRooms(sel.storey, sel.index).map((r, i) => <li key={i}><span>{r.name}</span><span>{r.area.toFixed(1)} m²</span></li>)}</ul>
               <div className="actions">
+                {panoFor(sel.storey, sel.index) && (
+                  <button className="btn gold" onClick={() => setPano(panoFor(sel.storey, sel.index))}><Icon n="rotate" />{lang === 'ru' ? 'Интерьер 360°' : '360° ichki ko‘rinish'}</button>
+                )}
                 <button className="btn gold" onClick={() => beginWalk(sel)}><Icon n="walk" />{t.walk}</button>
                 <button className="btn" onClick={() => { const a = sel; onSec('qavatlar'); setTimeout(() => setSel({ ...a }), 60); }}><Icon n="plan" />{t.onPlan}</button>
                 <button className="btn" onClick={() => setDrw({ storey: sel.storey, apt: sel.index })}><Icon n="ruler" />{drwLabel}</button>
@@ -419,6 +427,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
       })()}
       {drw && <Drawing lang={lang} blockId={blockId} storey={drw.storey} apt={drw.apt} onClose={() => setDrw(null)} />}
       {lbox && <Lightbox items={lbox.items} start={lbox.start} onClose={() => setLbox(null)} />}
+      {pano && <Pano360 dir={pano} lang={lang} onClose={() => setPano(null)} />}
 
       <nav className="b-nav glass">
         {SECTIONS.map((s) => (

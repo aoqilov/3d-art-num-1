@@ -1,0 +1,91 @@
+{
+ "apt": 4,
+ "label": "70.80",
+ "rooms": [
+  {
+   "id": "living",
+   "name": "Mehmonxona",
+   "kind": "living",
+   "pos": [
+    24.93,
+    6.894
+   ],
+   "yaw": 0,
+   "file": "living.jpg",
+   "links": [
+    "corridor",
+    "bedroom-1",
+    "kitchen",
+    "bedroom-2"
+   ]
+  },
+  {
+   "id": "kitchen",
+   "name": "Oshxona",
+   "kind": "kitchen",
+   "pos": [
+    25.01,
+    1.77
+   ],
+   "yaw": 0.09,
+   "file": "kitchen.jpg",
+   "links": [
+    "corridor",
+    "bedroom-1",
+    "bedroom-2",
+    "living"
+   ]
+  },
+  {
+   "id": "bedroom-1",
+   "name": "Yotoqxona 1",
+   "kind": "bedroom",
+   "pos": [
+    28.01,
+    12.31
+   ],
+   "yaw": -3.1419,
+   "file": "bedroom-1.jpg",
+   "links": [
+    "corridor",
+    "kitchen",
+    "bedroom-2",
+    "living"
+   ]
+  },
+  {
+   "id": "bedroom-2",
+   "name": "Yotoqxona 2",
+   "kind": "bedroom",
+   "pos": [
+    28.01,
+    6.17
+   ],
+   "yaw": 0.0202,
+   "file": "bedroom-2.jpg",
+   "links": [
+    "corridor",
+    "bedroom-1",
+    "kitchen",
+    "living"
+   ]
+  },
+  {
+   "id": "corridor",
+   "name": "Koridor",
+   "kind": "corridor",
+   "pos": [
+    26.77,
+    8.73
+   ],
+   "yaw": 1.504,
+   "file": "corridor.jpg",
+   "links": [
+    "bedroom-1",
+    "kitchen",
+    "bedroom-2",
+    "living"
+   ]
+  }
+ ]
+}

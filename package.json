@@ -9,7 +9,8 @@
     "model": "node tools/blender/run.mjs",
     "yard": "node tools/yard_glb/run.mjs",
     "outer": "node tools/outer/merge.mjs maps-out",
-    "unreal": "node tools/unreal/run.mjs"
+    "unreal": "node tools/unreal/run.mjs",
+    "interior": "node tools/interior/run.mjs"
   },
   "dependencies": {
     "@takram/three-atmosphere": "^0.19.1",

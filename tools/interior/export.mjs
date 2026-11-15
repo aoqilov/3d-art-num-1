@@ -1,0 +1,20 @@
+// node tools/interior/export.mjs → tools/interior/out/storey3.json (the typical storey per material, see dump_storey.ts)
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const { chromium } = createRequire(import.meta.url)('playwright-core');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const r = await build({ entryPoints: [path.join(here, 'dump_storey.ts')], bundle: true, format: 'iife', write: false, logLevel: 'error', loader: { '.json': 'json' } });
+const b = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const p = await b.newPage();
+p.on('pageerror', (e) => console.log('ERR', e.message));
+await p.setContent('<!doctype html><body></body>');
+await p.addScriptTag({ content: r.outputFiles[0].text });
+await p.waitForFunction('window.ready');
+const d = await p.evaluate('window.dump()');
+fs.mkdirSync(path.join(here, 'out'), { recursive: true });
+fs.writeFileSync(path.join(here, 'out/storey3.json'), JSON.stringify(d));
+console.log(d.map((g) => `${g.name}:${g.count / 3}`).join(' '));
+await b.close();

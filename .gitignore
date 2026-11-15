@@ -12,3 +12,5 @@ tools/yard_glb/src/
 shots/
 tools/ue2/out/
 /*.mp4
+tools/interior/src/
+tools/interior/out/
