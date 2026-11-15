@@ -282,9 +282,20 @@ void main() {
     });
   }
   requestAnimationFrame(function () { setTimeout(draw, 0); });
+  // never a page stuck behind the clouds: the app code (src/loader.ts) says it is there (__ldApp) — a code that failed
+  // to load, or yesterday's code from the browser's cache under today's page, would leave them closed for good; and
+  // the first parting comes after 90 s at the latest, whatever happened
+  window.__ldRelease = function () {
+    var e = document.getElementById('ld');
+    if (!e || e.classList.contains('open')) return;
+    e.classList.add('ready', 'open');
+    setTimeout(function () { e.classList.add('gone'); }, 1700);
+  };
+  document.addEventListener('DOMContentLoaded', function () { if (!window.__ldApp) window.__ldRelease(); });
+  setTimeout(function () { if (!window.__ldOpened) window.__ldRelease(); }, 90000);
 })();
 </script>
 <div id="root"></div>
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js" onerror="window.__ldRelease && window.__ldRelease()"></script>
 </body>
 </html>

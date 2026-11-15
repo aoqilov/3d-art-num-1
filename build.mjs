@@ -6,6 +6,7 @@
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { rmSync, mkdirSync, cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const which = process.argv[2] ?? 'all';
 // Every `import 'three'` (ours and the examples') resolves to the WebGPU build: one copy of three.js, whose
@@ -43,6 +44,12 @@ async function variant(out, mode) {
   cpSync('public', out, { recursive: true });
   if (existsSync('public-pro')) cpSync('public-pro', out, { recursive: true });
   await build({ ...common, define: { ...common.define, __DEFAULT_MODE__: JSON.stringify(mode) }, entryPoints: { app: 'src/main.tsx' }, outdir: out });
+  // app.js / app.css keep their names but are cached for a day (vercel.json) while index.html is fetched every time:
+  // a version from their contents in index.html, or a visitor gets a new page with yesterday's code (the loading
+  // clouds of the new page never part under the old code)
+  const ver = (f) => createHash('sha1').update(readFileSync(`${out}/${f}`)).digest('hex').slice(0, 10);
+  const html = `${out}/index.html`;
+  writeFileSync(html, readFileSync(html, 'utf8').replace('src="app.js"', `src="app.js?v=${ver('app.js')}"`).replace('href="app.css"', `href="app.css?v=${ver('app.css')}"`));
   console.log(out + '/ ready');
 }
 if (which === 'all' || which === 'light') await variant('dist', 'basic');

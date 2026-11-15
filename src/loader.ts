@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 
 type State = 'closed' | 'opening' | 'open';
+const W = window as unknown as { __ldApp?: boolean; __ldOpened?: boolean; __ldReadyAt?: number };
+W.__ldApp = true;                    // index.html: the app code is here (else it parts the clouds by itself)
 let state: State = document.getElementById('ld') ? 'closed' : 'open';
 let gen = 0;
 let closedAt = 300;                 // the first closing starts with the page's first paint
@@ -37,7 +39,7 @@ const settled = (cap: number) => new Promise<void>((res) => {
 /** clouds in (resolves when the window is covered) */
 export function loaderClose(): Promise<void> {
   const e = el();
-  if (!e || state === 'closed') return Promise.resolve();
+  if (!e || !e.classList.contains('open')) return Promise.resolve();      // the page's (it may have parted them itself)
   gen++;
   state = 'closed'; closedAt = performance.now();
   e.classList.remove('open', 'gone');
@@ -53,12 +55,12 @@ export function loaderReveal(loaded: Promise<unknown>) {
     await settled(15000);
     // the first time the banks start closing only once index.html has drawn them (#ld.ready, __ldReadyAt)
     await until(() => !!document.querySelector('#ld.ready'), 5000);
-    const begun = Math.max(closedAt, (window as unknown as { __ldReadyAt?: number }).__ldReadyAt ?? 0);
+    const begun = Math.max(closedAt, W.__ldReadyAt ?? 0);
     const wait = begun + IN_MS + 200 - performance.now();
     if (wait > 0) await sleep(wait);
     const e = el();
     if (!e || g !== gen || state !== 'closed') return;
-    state = 'opening';
+    state = 'opening'; W.__ldOpened = true;
     e.classList.add('open');
     await sleep(OUT_MS);
     if (g === gen && state === 'opening') { e.classList.add('gone'); state = 'open'; }
