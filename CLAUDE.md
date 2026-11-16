@@ -80,7 +80,7 @@ Ochiq savollar / qoldiqlar:
 - Kamera yer ostiga kirmaydi (`gpu.ts` `keepAboveGround`, ikkala sahna `controls.update()` dan keyin): orbit markazi y >= 0 (pan pastga tortganda kamera ham birga ko'tariladi), kamera kompleksda >= 2 m, blokda >= 1.2 m
 - Kamera inersiyasi vaqtga bog'langan (`gpu.ts` `orbitDamping`, ~0.2 s): kadrga bog'langanda 16 FPS da kamera qo'yib yuborilgandan keyin 4 s yurardi
 - 1-qavat: do'kon ichi ko'rinmaydi, ayvon render'dagidan sodda
-- Git: faqat boshlang'ich commit bor; repo ommaviy (PUBLIC), push uchun ruxsat kutilmoqda
+- Git (2026-11-16): ish `realizm` tarmog'ida, egasi so'rab push qilindi (origin/realizm; repo ommaviy). GitHub'dagi `main` hali boshlang'ich holatda — birlashtirish (PR) egasi qaroriga. Deploy shu tarmoqning `dist/` idan (2026-11-16: 360° ko'rgich va veb realizmi bilan)
 - Harakat (mashinalar, odamlar) — egasi kerak emas dedi
 
 ## Eslatmalar

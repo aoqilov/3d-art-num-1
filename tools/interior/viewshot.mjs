@@ -13,7 +13,7 @@ const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } })
 await ctx.addInitScript(() => { try { localStorage.setItem('om-mode', 'basic'); } catch {} });
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('pageerror:', e.message));
-await page.goto(`http://localhost:5173/?pano=${apt}#blok-1`, { waitUntil: 'domcontentloaded', timeout: 90000 });
+await page.goto(`${process.env.URL ?? 'http://localhost:5173/'}?pano=${apt}#blok-1`, { waitUntil: 'domcontentloaded', timeout: 90000 });
 await page.waitForSelector('.pano360 .ptabs button', { timeout: 120000 });
 await wait(2500);
 const tabs = await page.$$eval('.pano360 .ptabs button', (b) => b.map((x) => x.textContent));
