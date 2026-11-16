@@ -314,14 +314,14 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
           </div>
           {detailed && <PlanSvg storey={sel.storey} index={sel.index} />}
           <div className="price"><b>{usd(sel.price)}</b><span>$1 000 {t.perM2}</span></div>
+          {panoFor(sel.storey, sel.index) && (
+            <button className="btn gold pano-btn" onClick={() => setPano(panoFor(sel.storey, sel.index))}><Icon n="rotate" />{lang === 'ru' ? 'Интерьер 360° — посмотреть комнаты' : '360° ichki ko‘rinish — xonalarni ko‘rish'}</button>
+          )}
           {detailed && (
             <>
               <h4>{t.roomList}</h4>
               <ul className="rooms">{aptRooms(sel.storey, sel.index).map((r, i) => <li key={i}><span>{r.name}</span><span>{r.area.toFixed(1)} m²</span></li>)}</ul>
               <div className="actions">
-                {panoFor(sel.storey, sel.index) && (
-                  <button className="btn gold" onClick={() => setPano(panoFor(sel.storey, sel.index))}><Icon n="rotate" />{lang === 'ru' ? 'Интерьер 360°' : '360° ichki ko‘rinish'}</button>
-                )}
                 <button className="btn gold" onClick={() => beginWalk(sel)}><Icon n="walk" />{t.walk}</button>
                 <button className="btn" onClick={() => { const a = sel; onSec('qavatlar'); setTimeout(() => setSel({ ...a }), 60); }}><Icon n="plan" />{t.onPlan}</button>
                 <button className="btn" onClick={() => setDrw({ storey: sel.storey, apt: sel.index })}><Icon n="ruler" />{drwLabel}</button>
@@ -543,7 +543,7 @@ export default function BlockView({ blockId, sec, onSec, onBack }: { blockId: nu
         <div className="alist">
           {list.slice(0, 160).map((a) => (
             <button key={a.storey + '-' + a.index} className={'aitem' + (sel && sel.storey === a.storey && sel.index === a.index ? ' on' : '')} onClick={() => setSel(a)}>
-              <i className={'sq ' + a.status} /><span className="n">{t.floorN(a.storey)}</span><span>{a.rooms}-{t.roomsShort}</span><span className="ar">{a.area.toFixed(2)}</span><span className="ar">{usd(a.price)}</span>
+              <i className={'sq ' + a.status} /><span className="n">{t.floorN(a.storey)}{panoFor(a.storey, a.index) && <em className="p360">360°</em>}</span><span>{a.rooms}-{t.roomsShort}</span><span className="ar">{a.area.toFixed(2)}</span><span className="ar">{usd(a.price)}</span>
             </button>
           ))}
         </div>
