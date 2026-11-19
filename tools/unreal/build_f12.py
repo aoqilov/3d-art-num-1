@@ -296,10 +296,12 @@ def storey(s):
         y0, y1 = (r['y0'], r['y1']) if ax_x else (r['y0'] - e, r['y1'] + e)
         prism('Shell', [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], [], Z + z0, Z + z1, plan3, top, bot, wall_side)
 
-    def glazing(r, z0, z1, step, ext, transom=None, frame='M_Frame', door=False, leaf=0):
+    def glazing(r, z0, z1, step, ext, transom=None, frame='M_Frame', door=False, leaf=0, dpane=None):
         """Profiled frame + double glazing inside opening r (plan rect), storey-local heights z0..z1.
         leaf=+1/-1: a flat's balcony door. Only the outer frame is built here; the glazed leaf is a BP_Blok1Door
-        (Kit_DoorGlass, walk.json 'balc') hinged on the frame that swings 90 degrees into the room (room on +leaf side)."""
+        (Kit_DoorGlass, walk.json 'balc') hinged on the frame that swings 90 degrees into the room (room on +leaf side).
+        dpane=(i, head, side): pane i of a glazed partition becomes a door: a transom at head, glass above it, and a
+        glazed leaf below (walk.json 'balc') that swings to the side (+1/-1 along the frame normal)."""
         ax = r['axis']; u0, u1 = (r['x0'], r['x1']) if ax == 'x' else (r['y0'], r['y1'])
         t0, t1 = (r['y0'], r['y1']) if ax == 'x' else (r['x0'], r['x1'])
         if ext: c = (t0 + 0.085) if (ext[1] if ax == 'x' else ext[0]) < 0 else (t1 - 0.085)
@@ -332,6 +334,20 @@ def storey(s):
         zs = [z0 + (0 if door else F), z1 - F] if not transom else [z0 + (0 if door else F), transom - 0.035, transom + 0.035, z1 - F]
         for i in range(len(edges) - 1):
             a = edges[i] + (0.04 if 0 < i else 0); b = edges[i + 1] - (0.04 if i + 1 < len(edges) - 1 else 0)
+            if dpane and i == dpane[0]:
+                hd, sd = dpane[1], dpane[2]; ax_ = r['axis']
+                bar(a, b, hd - 0.035, hd + 0.035)                                     # transom over the door
+                S = 0.05
+                bar(a, a + S, hd + 0.035, z1 - F, 0.055); bar(b - S, b, hd + 0.035, z1 - F, 0.055)
+                bar(a, b, hd + 0.035, hd + 0.035 + S, 0.055); bar(a, b, z1 - F - S, z1 - F, 0.055)
+                gquad('Glass', 'M_Glass', ax_, a + 0.02, b - 0.02, c, Z + hd + 0.055, Z + z1 - F - 0.02)
+                hx, hy = (a + 0.004, c) if ax_ == 'x' else (c, a + 0.004)
+                closed = 0.0 if ax_ == 'x' else 90.0
+                into = (90.0 if sd > 0 else -90.0) if ax_ == 'x' else (0.0 if sd > 0 else 180.0)
+                BALC.setdefault(CUR[0].rstrip('_'), []).append(dict(hinge=(round(hx, 3), round(hy, 3)), width=round(b - a - 0.008, 3),
+                    z=round(Z + z0 + 0.005, 3), height=round(hd - 0.035 - z0 - 0.01, 3), closed=closed,
+                    opened=closed + ((into - closed + 180.0) % 360.0 - 180.0)))
+                continue
             for k in range(0, len(zs) - 1, 2):
                 za, zb = zs[k], zs[k + 1]; S = 0.05
                 bar(a, a + S, za, zb, 0.055); bar(b - S, b, za, zb, 0.055)
@@ -515,7 +531,13 @@ def storey(s):
         r = dict(g);
         if g['axis'] == 'x': m = (g['y0'] + g['y1']) / 2; r['y0'], r['y1'] = m - t, m + t
         else: m = (g['x0'] + g['x1']) / 2; r['x0'], r['x1'] = m - t, m + t
-        glazing(r, SLAB, FLOOR_H - 0.02, 0.85, None, frame='M_Rail', door=True)
+        # kitchen | living glass partition: the middle pane is a glazed door (the kitchen has no other way in),
+        # swinging into the living room
+        span_ = (g['x1'] - g['x0']) if g['axis'] == 'x' else (g['y1'] - g['y0']); n_ = max(1, round(span_ / 0.85))
+        if g['axis'] == 'x': ra, rb = room_at((g['x0'] + g['x1']) / 2, r['y0'] - 0.15), room_at((g['x0'] + g['x1']) / 2, r['y1'] + 0.15)
+        else: ra, rb = room_at(r['x0'] - 0.15, (g['y0'] + g['y1']) / 2), room_at(r['x1'] + 0.15, (g['y0'] + g['y1']) / 2)
+        sd = -1 if (ra and ra['kind'] == 'living') else 1
+        glazing(r, SLAB, FLOOR_H - 0.02, 0.85, None, frame='M_Rail', door=True, dpane=(n_ // 2, SLAB + 2.1, sd))
 
     # slab (open over the stair flights of the storey below)
     sr = stair_room(p) or stair_room(PLAN['3'])

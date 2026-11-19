@@ -39,6 +39,6 @@ for i in range(1, 60):
         if (pl.get_actor_location() - unreal.Vector(tgt.x, tgt.y, p0.z + 28)).length() > 2:
             blk = i * 5 - DIN; break
 q = pl.get_actor_location()
-print("walked to %.0f cm past the door line" % ((q - mid).dot(-inn)), "blocked at", blk, "cm past door line")
+print("walked to %.0f cm past the door line (into the kitchen / balcony)" % ((q - mid).dot(-inn)), "blocked at", blk, "cm past door line")
 hr = unreal.SystemLibrary.line_trace_single(w, q, q - inn * 80, unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True, [pl], unreal.DrawDebugTrace.NONE, True)
 print("in front:", hr.to_tuple()[9].get_actor_label() if hr else None)`);
