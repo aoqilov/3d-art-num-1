@@ -17,7 +17,7 @@ bpy.ops.wm.read_factory_settings(use_empty=True)       # no default cube / camer
 FLOOR_H, SLAB, BLOCK_W = 3.0, 0.2, 29.7
 # 2026-11-19 reset to a clean base (owner): empty flats, no artificial lights; rebuilt step by step later
 FURNITURE = False      # furniture, kitchens, sanitary ware, shop fit-out, Poly Haven kit placements
-LAMPS = False          # ceiling fixtures + Unreal point lights (lights.json)
+LAMPS = True           # ceiling fixtures + Unreal point lights (lights.json): soft warm light in flats (owner, 2026-11-18)
 ZTOP = 2 * FLOOR_H + SLAB          # model ends with the slab over storey 2
 PLAN = json.load(open(os.path.join(ROOT, 'src/block/data/plan_t4.json'), encoding='utf-8'))
 
@@ -376,7 +376,7 @@ def storey(s):
                 pbox('Shell', 'M_Sill', w['x0'] - 0.03, ya, w['x1'] + 0.03, yb, Z + h['sill'] - 0.04, Z + h['sill'])
                 if not loggia:
                     y0, y1 = sorted((yo, yo + sgn * 0.015))
-                    pbox('Shell', 'M_Spandrel', w['x0'], y0, w['x1'], y1, Z, Z + h['sill'] - 0.04)
+                    pbox('Shell', 'M_Spandrel', w['x0'], y0, w['x1'], y1, Z + (SLAB if s == 2 else 0), Z + h['sill'] - 0.04)
                     pbox('Shell', 'M_Spandrel', w['x0'], y0, w['x1'], y1, Z + h['head'], Z + FLOOR_H)
             else:
                 xo = w['x0'] if ext[0] < 0 else w['x1']; sgn = ext[0]
@@ -384,7 +384,7 @@ def storey(s):
                 pbox('Shell', 'M_Sill', xa, w['y0'] - 0.03, xb, w['y1'] + 0.03, Z + h['sill'] - 0.04, Z + h['sill'])
                 if not loggia:
                     x0, x1 = sorted((xo, xo + sgn * 0.015))
-                    pbox('Shell', 'M_Spandrel', x0, w['y0'], x1, w['y1'], Z, Z + h['sill'] - 0.04)
+                    pbox('Shell', 'M_Spandrel', x0, w['y0'], x1, w['y1'], Z + (SLAB if s == 2 else 0), Z + h['sill'] - 0.04)
                     pbox('Shell', 'M_Spandrel', x0, w['y0'], x1, w['y1'], Z + h['head'], Z + FLOOR_H)
 
     for o in p['openings']:
@@ -457,9 +457,12 @@ def storey(s):
             mat = 'M_Steel' if o['kind'] == 'lift' else 'M_DoorEntry' if entrance else 'M_DoorWood'
             u0, u1 = (o['x0'], o['x1']) if x else (o['y0'], o['y1'])
             t0, t1 = (o['y0'], o['y1']) if x else (o['x0'], o['x1']); c = (t0 + t1) / 2
+            # doors inside a flat (casings, leaf, levers) go to their own part 'DoorsIn': Unreal hides it for the handover
+            # state (owner 2026-11-19: no room doors in the flats); a finished-flat level can show it again
+            pn_d = 'DoorsIn' if (interior and not all(a is None for a in apts)) else 'Frames'
             def b(a, bb, za, zb, d0, d1, m):
-                if x: pbox('Frames', m, a, d0, bb, d1, Z + za, Z + zb)
-                else: pbox('Frames', m, d0, a, d1, bb, Z + za, Z + zb)
+                if x: pbox(pn_d, m, a, d0, bb, d1, Z + za, Z + zb)
+                else: pbox(pn_d, m, d0, a, d1, bb, Z + za, Z + zb)
             cas = 'M_Steel' if o['kind'] == 'lift' else 'M_DoorEntry' if entrance else 'M_DoorWood' if interior else 'M_FrameLight'
             cw = 0.07 if (entrance or interior) else 0.05
             b(u0, u0 + cw, SLAB, head, t0 - 0.012, t1 + 0.012, cas); b(u1 - cw, u1, SLAB, head, t0 - 0.012, t1 + 0.012, cas)
@@ -560,7 +563,8 @@ def storey(s):
         if not in_poly(mu - nu * 0.05, mv - nv * 0.05, p['footprint']) and not in_poly(mu + nu * 0.05, mv + nv * 0.05, p['footprint']): pass
         if in_poly(mu + nu * 0.05, mv + nv * 0.05, p['footprint']): return 'M_Concrete'     # well edge
         if s == 1: return 'M_Granite'
-        return 'M_SlabEdge' if balcony_at(mu - nu * 0.15, mv - nv * 0.15) else 'M_FacadeMint'
+        if balcony_at(mu - nu * 0.15, mv - nv * 0.15): return 'M_SlabEdge'
+        return 'M_BrickWall' if s == 2 else 'M_FacadeMint'     # storey-2 slab edge: the ground-floor brick runs up to the canopy
     # slab top = wall bottom (Z + SLAB): a lower top left a 4 mm open seam on the facade at every storey; the floor
     # finishes (Z + SLAB - 0.004 .. + 0.003, no bottom face) still cover it from above
     prism('Shell', p['footprint']['outer'], holes, Z, Z + SLAB, plan3, 'M_Concrete', 'M_Ceiling', slab_side)

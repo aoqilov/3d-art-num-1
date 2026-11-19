@@ -31,7 +31,7 @@ sms = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
 # their coverage far away instead of dropping bars (they crawled), and VSM shadows stay fast (non-Nanite meshes over
 # the whole facade overflowed the VSM marking queue). Glass is translucent and the small moving kit stays classic.
 NO_NANITE = ("Glass", "Kit_")
-THIN = ("_Frames", "_Lattice", "_Signs")
+THIN = ("_Frames", "_Lattice", "_Signs", "_DoorsIn")
 for n, m in meshes.items():
     s = sms.get_nanite_settings(m)
     want = not any(k in n for k in NO_NANITE)
@@ -39,7 +39,7 @@ for n, m in meshes.items():
     sp = unreal.NaniteShapePreservation.PRESERVE_AREA if pa else unreal.NaniteShapePreservation.NONE
     # window frames + radiators: full-detail ray-tracing fallback (AUTO collapsed the bars into big spikes that
     # shadowed the walls next to every window)
-    fb = unreal.NaniteFallbackTarget.PERCENT_TRIANGLES if n.endswith("_Frames") else unreal.NaniteFallbackTarget.AUTO
+    fb = unreal.NaniteFallbackTarget.PERCENT_TRIANGLES if n.endswith(("_Frames", "_DoorsIn")) else unreal.NaniteFallbackTarget.AUTO
     if s.enabled != want or s.get_editor_property("shape_preservation") != sp or s.fallback_target != fb:
         s.enabled = want
         s.set_editor_property("shape_preservation", sp)
@@ -90,3 +90,18 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "walk_setup_b
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "kit_setup_blok1.py"), encoding="utf-8").read())
 # 2026-11-19 reset: the lighting experiments (lumen_fix, ppv_corridor/flats, rt_fallback) are no longer run;
 # their scripts stay in this folder for reference. Lighting is rebuilt step by step from engine defaults.
+# handover state (owner 2026-11-19): no room doors inside the flats. The *_DoorsIn actors (oak casings, leaves, levers)
+# stay in the level, tagged "DoorsIn", hidden in game and editor and without collision; a finish level can show them again.
+n_din = 0
+for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+    if a.get_actor_label().endswith("_DoorsIn"):
+        a.set_actor_hidden_in_game(True)
+        a.set_is_temporarily_hidden_in_editor(True)
+        try: a.set_editor_property("hidden_ed", True)          # persistent editor hide (bHiddenEd), where exposed
+        except Exception: pass
+        a.set_actor_enable_collision(False)
+        a.static_mesh_component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+        tags = list(a.tags)
+        if unreal.Name("DoorsIn") not in tags: a.tags = tags + [unreal.Name("DoorsIn")]
+        n_din += 1
+print("room doors hidden:", n_din)
