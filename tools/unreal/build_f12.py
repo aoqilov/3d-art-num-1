@@ -520,6 +520,8 @@ def storey(s):
         if r['apt'] is None and not (k is None and r['area'] > 4) and k != 'shop': continue
         if well and r is sr: continue
         x0, y0, x1, y1 = bounds(r['poly'])
+        in_shaft = LIFT_X[0] - 0.1 < (x0 + x1) / 2 < LIFT_X[1] + 0.1 and LIFT_Y[0][0] - 0.1 < (y0 + y1) / 2 < LIFT_Y[1][1] + 0.1
+        if r['apt'] is None and k is None and in_shaft: continue       # storey 1 lift shafts are unlabelled rooms: keep them open
         if r['apt'] is None and k is None:
             # public corridor / lobby: grey ceiling, round lamps every ~3 m along the long axis (owner's reference)
             prism('Shell', r['poly']['outer'], r['poly']['holes'], Z + FLOOR_H - 0.006, Z + FLOOR_H - 0.002, plan3, None, 'M_CeilPublic', None)
