@@ -57,7 +57,7 @@ with unreal.ScopedEditorTransaction("Blok-1 yurish: eshik, lift"):
         cab.set_editor_property("static_mesh", unreal.load_asset(FULL + "Blok1_Kit_LiftCab" + sh))
         x0, y0, x1, y1 = L["cab"]
         u0, u1 = L["door_y"]
-        for k, v in (("Shaft", sh), ("OriginX", O.x), ("OriginY", O.y), ("BaseZ", O.z), ("DoorWidth", (u1 - u0) * 100.0 - 5.0),
+        for k, v in (("Shaft", sh), ("OriginX", O.x), ("OriginY", O.y), ("BaseZ", O.z), ("DoorWidth", (u1 - u0) * 100.0 - 5.0 if sh == "A" else (u1 - u0) * 50.0 - 2.0),     # B: centre-opening pair, each leaf slides half
                      ("CabCX", O.x + (x0 + x1) * 50.0), ("CabCY", O.y + (y0 + y1) * 50.0), ("CabHX", (x1 - x0) * 50.0), ("CabHY", (y1 - y0) * 50.0)):
             a.set_editor_property(k, v)
         a.set_editor_property("tags", [unreal.Name("Blok1"), unreal.Name("Lift"), unreal.Name("LiftCtl" + sh)])
@@ -65,9 +65,9 @@ with unreal.ScopedEditorTransaction("Blok-1 yurish: eshik, lift"):
     for a in eas.get_all_level_actors():
         lab = a.get_actor_label()
         if lab.startswith("Blok1_Q") and "_LiftDoor" in lab:
-            st = int(lab[7:9]); sh = lab[-1]
+            st = int(lab[7:9]); sh = "B" if "_LiftDoorB" in lab else "A"
             a.static_mesh_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
-            tags = [str(t) for t in a.tags] + ["LD%s%d" % (sh, st), "Lift" + sh]
+            tags = [str(t) for t in a.tags] + ["LD%s%d" % (sh, st), "Lift" + sh] + (["LDPos"] if lab.endswith("_LiftDoorBR") else [])   # LDPos: slides to +y
             a.set_editor_property("tags", [unreal.Name(t) for t in dict.fromkeys(tags)])
             nl += 1
 
