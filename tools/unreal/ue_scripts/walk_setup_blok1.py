@@ -70,6 +70,12 @@ with unreal.ScopedEditorTransaction("Blok-1 yurish: eshik, lift"):
             tags = [str(t) for t in a.tags] + ["LD%s%d" % (sh, st), "Lift" + sh] + (["LDPos"] if lab.endswith("R") else [])   # LDPos: right leaf, slides to +y
             a.set_editor_property("tags", [unreal.Name(t) for t in dict.fromkeys(tags)])
             nl += 1
+        elif lab.startswith("Blok1_Q") and ("_LiftBtn" in lab or "_LiftPlate" in lab):
+            # call button + its plate: E on either calls that lift (player graph: tag Lift<sh>); the lift lights LB<sh><st>
+            st = int(lab[7:9]); sh = lab[-1]
+            tags = [str(t) for t in a.tags] + ["Lift" + sh] + (["LB%s%d" % (sh, st)] if "_LiftBtn" in lab else [])
+            a.set_editor_property("tags", [unreal.Name(t) for t in dict.fromkeys(tags)])
+            if "_LiftBtn" in lab: a.static_mesh_component.set_material(0, unreal.load_asset("/Game/Blok1/Mat/MI_LiftBtnOff"))
 
     # ---- walk start: ground-floor hall in front of the lifts, facing them
     ws = eas.spawn_actor_from_class(unreal.TargetPoint, wp(15.9, 13.0, 0.2 + 0.9), unreal.Rotator(0, 0, 180.0))

@@ -442,6 +442,12 @@ def storey(s):
                 # brushed-steel portal on the lobby face around the casing
                 b(u0 - 0.09, u0, SLAB, head + 0.09, t1, t1 + 0.012, 'M_Steel'); b(u1, u1 + 0.09, SLAB, head + 0.09, t1, t1 + 0.012, 'M_Steel')
                 b(u0, u1, head, head + 0.09, t1, t1 + 0.012, 'M_Steel')
+                # call button right of the portal (seen from the lobby): steel plate + push button (own part per shaft:
+                # tagged LiftA/LiftB in Unreal, E calls the lift; the lift blueprint lights it until the cabin arrives)
+                by, bz = u1 + 0.09 + 0.14, SLAB + 1.05
+                part('LiftPlate' + shaft); part('LiftBtn' + shaft)
+                pbox('LiftPlate' + shaft, 'M_Steel', t1, by - 0.045, t1 + 0.012, by + 0.045, Z + bz - 0.09, Z + bz + 0.09)
+                pbox('LiftBtn' + shaft, 'M_LiftBtn', t1 + 0.012, by - 0.018, t1 + 0.022, by + 0.018, Z + bz - 0.018, Z + bz + 0.018)
                 lx = d1
                 if s == 3 or s == 1: LIFTS[shaft] = dict(door_y=(u0, u1), door_x=lx)
             elif interior and all(a is None for a in apts):
@@ -1350,6 +1356,7 @@ MATS = {m.name: m for m in [
     mat('M_Rail', '#2d3038', 0.4, 0.7),
     mat('M_Steel', '#b9bcc0', 0.3, 0.9, tex='brushed', tile=1.0),
     mat('M_Gold', '#caa865', 0.32, 1.0),
+    mat('M_LiftBtn', '#3a3d42', 0.35, 0.8),                                          # lift call button (lit in Unreal: MI_LiftBtnOn)
     mat('M_Pilaster', '#d6c9c2', 0.75, tex='plaster', tint=True, tile=2.5),
     mat('M_DoorWood', '#d9cbb8', 0.55, tex='veneer', tint=True, tile=1.5),
     mat('M_Pavers', '#ffffff', 0.85, tex='ph_pavers', tile=3.0),

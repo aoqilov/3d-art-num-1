@@ -148,6 +148,20 @@ def build_emissive():
     MEL.recompile_material(m)
     return m
 
+def build_glow():
+    """Unlit-looking emissive that ignores the time of day (lift call button lit while a call is waiting)."""
+    m = fresh_material("M_Blok1_Glow")
+    c = expr(m, unreal.MaterialExpressionVectorParameter, -500, 0)
+    c.set_editor_property("parameter_name", "Color"); c.set_editor_property("default_value", hexlin("#ffd9a0"))
+    s = expr(m, unreal.MaterialExpressionScalarParameter, -500, 150)
+    s.set_editor_property("parameter_name", "Strength"); s.set_editor_property("default_value", 30.0)
+    mul = expr(m, unreal.MaterialExpressionMultiply, -250, 50)
+    MEL.connect_material_expressions(c, "", mul, "A"); MEL.connect_material_expressions(s, "", mul, "B")
+    MEL.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    MEL.connect_material_property(mul, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    MEL.recompile_material(m)
+    return m
+
 def ensure_ppv():
     """Unbound post-process volume for the block: Lumen reflections on translucent glass (front layer)."""
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -178,6 +192,7 @@ plaster = build_plaster()
 solid = build_solid()
 glass = build_glass()
 emissive = build_emissive()
+glow = build_glow()
 ensure_ppv()
 
 # slot name -> (instance name, parent, vectors, scalars). Colours: architect's render (src/block/materials.ts COLORS).
@@ -202,6 +217,7 @@ MAP = {
     "M_LightRim":     ("MI_LightRim",     S("#e9e9e7", 0.35, 0.6)),
     "M_LightEmit":    ("MI_LightEmit",    ("emit", {"Color": hexlin("#fff1dc")}, {"Strength": 8.0})),
     "M_LampPublic":   ("MI_LampPublic",   ("emit", {"Color": hexlin("#eef3ff")}, {"Strength": 5.0})),   # neutral corridor plafonds
+    "M_LiftBtn":      ("MI_LiftBtnOff",   S("#3a3d42", 0.35, 0.8)),          # lift call button, off (MI_LiftBtnOn below)
     "M_PilasterDark": ("MI_PilasterDark", P("#a48a72")),
     "M_Recess":       ("MI_Recess",       P("#cfccc5")),
     "M_Frame":        ("MI_Frame",        S("#1d1f23", 0.38, 0.15)),          # black powder-coated aluminium (interior renders)
@@ -214,6 +230,8 @@ MAP = {
 made = {}
 for slot, (name, (kind, vec, sca)) in MAP.items():
     made[slot] = instance(name, {"plaster": plaster, "solid": solid, "glass": glass, "emit": emissive}[kind], vec, sca)
+
+instance("MI_LiftBtnOn", glow, {"Color": hexlin("#ffd9a0")}, {"Strength": 30.0})
 
 def apply_all():
     reg = unreal.AssetRegistryHelpers.get_asset_registry()
