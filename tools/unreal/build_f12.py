@@ -553,7 +553,9 @@ def storey(s):
         if in_poly(mu + nu * 0.05, mv + nv * 0.05, p['footprint']): return 'M_Concrete'     # well edge
         if s == 1: return 'M_Granite'
         return 'M_SlabEdge' if balcony_at(mu - nu * 0.15, mv - nv * 0.15) else 'M_FacadeMint'
-    prism('Shell', p['footprint']['outer'], holes, Z, Z + SLAB - 0.004, plan3, 'M_Concrete', 'M_Ceiling', slab_side)
+    # slab top = wall bottom (Z + SLAB): a lower top left a 4 mm open seam on the facade at every storey; the floor
+    # finishes (Z + SLAB - 0.004 .. + 0.003, no bottom face) still cover it from above
+    prism('Shell', p['footprint']['outer'], holes, Z, Z + SLAB, plan3, 'M_Concrete', 'M_Ceiling', slab_side)
 
     # room finishes
     if s == 1:

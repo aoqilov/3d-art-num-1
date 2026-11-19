@@ -1,0 +1,10 @@
+; Player body size from BoyiSm (height, cm) and YelkaSm (shoulder width, cm). Manny: 180.5 cm tall, ~46 cm shoulders.
+; Mesh X is the body's left-right axis (mesh yaw -90), so X scale = shoulder width, Y/Z scale = height.
+(fn ApplyBody ()
+  (bind h (Variables|Tana|GetBoyiSm))
+  (bind w (Variables|Tana|GetYelkaSm))
+  (bind s (/ h 180.5))
+  (Transformation|SetRelativeScale3D :self (Variables|Character|GetMesh) :NewScale3D (Math|Vector|MakeVector :X (/ w 46.0) :Y s :Z s))
+  (Transformation|SetRelativeLocation :self (Variables|Character|GetMesh) :NewLocation (Math|Vector|MakeVector :X 0.0 :Y 0.0 :Z (* h -0.5)))
+  (Components|Capsule|SetCapsuleSize :self (Variables|Character|GetCapsuleComponent) :InRadius (* w 0.5) :InHalfHeight (* h 0.5))
+  (Transformation|SetRelativeLocation :self (Variables|Default|GetArm) :NewLocation (Math|Vector|MakeVector :X 0.0 :Y 0.0 :Z (* h 0.435))))

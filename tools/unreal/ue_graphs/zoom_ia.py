@@ -7,6 +7,7 @@ imc = unreal.load_asset(D + "/IMC_Blok1")
 k = unreal.Key(); k.import_text("MouseWheelAxis")
 maps = imc.get_editor_property("default_key_mappings").get_editor_property("mappings")
 if not any(m.get_editor_property("action") == a for m in maps):
+    imc.modify()          # without modify() the package is not marked dirty and save_asset silently skips it
     imc.map_key(a, k)
-unreal.EditorAssetLibrary.save_asset(p); unreal.EditorAssetLibrary.save_asset(D + "/IMC_Blok1")
+unreal.EditorAssetLibrary.save_loaded_asset(a, False); unreal.EditorAssetLibrary.save_loaded_asset(imc, False)
 print("ok", [(str(m.get_editor_property("action").get_name()), str(m.get_editor_property("key").get_editor_property("key_name"))) for m in imc.get_editor_property("default_key_mappings").get_editor_property("mappings")])
