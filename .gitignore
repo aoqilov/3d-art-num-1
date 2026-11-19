@@ -9,3 +9,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 tools/yard_glb/src/
+tools/unreal/out/
+tools/unreal/kit_src/
+tools/unreal/kit_glb/
+model-for-fab/
+video-reference/
