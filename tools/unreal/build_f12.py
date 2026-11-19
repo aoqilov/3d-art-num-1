@@ -272,8 +272,14 @@ def storey(s):
 
     # walls: drawn wall polygons as solids, every face finished by what it faces
     for w in p['walls']:
-        corner = s == 3 and any(y < CORNER_Y[1] and (x < 0.3 or x > 29.4) for x, y in w['outer'])
+        if s == 1:                                 # storey 1: no wall on the stair centre line (x 10.91-11.09, y 11.65-17.78);
+            wx = [q[0] for q in w['outer']]; wy = [q[1] for q in w['outer']]     # owner 2026-11-19: open the flight to
+            if 10.85 < min(wx) and max(wx) < 11.15 and min(wy) > 10.4 and max(wy) < 17.9: continue   # the strip beside it
+        corner =s == 3 and any(y < CORNER_Y[1] and (x < 0.3 or x > 29.4) for x, y in w['outer'])
         prism('WallCut' if corner else 'Shell', w['outer'], w['holes'], Z + SLAB, Z + FLOOR_H, plan3, 'M_Concrete', None, wall_side)
+    if s == 1:                                     # instead: brick wall closing the courtyard strip beside the stair entrance,
+        # in line with the entrance door (pier at x 9.69 .. door casing at x 11.08); brick outside, stair paint inside
+        pbox('Shell', 'M_BrickWall', 9.69, 17.6, 11.08, 17.78, Z, Z + FLOOR_H, top='M_Concrete', bottom=None, ny='M_PaintPublic')
     if s == 3:                                     # decking where the gable wall stood
         for x0, x1 in ((0.0, 0.215), (29.505, 29.71)):
             pbox('FloorsD', 'M_FloorDeck', x0, 0.2, x1, CORNER_Y[1], Z + SLAB - 0.004, Z + SLAB + 0.003, bottom=None)
@@ -544,6 +550,8 @@ def storey(s):
     well = None
     if s != 1 and sr:
         x0, y0, x1, y1 = bounds(sr['poly']); well = (x0, y0, x1, y1 - STAIR_LAND)
+    _s3 = stair_room(PLAN['3'])                                      # the well cut in the slab ABOVE this storey
+    sr3_well = (lambda b: (b[0], b[1], b[2], b[3] - STAIR_LAND))(bounds(_s3['poly'])) if _s3 else None
     holes = [h_ for h_ in p['footprint']['holes']]
     if well: holes = holes + [[(well[0], well[1]), (well[2], well[1]), (well[2], well[3]), (well[0], well[3])]]
     if s != 1:                                                       # lift shafts run through every slab above the ground
@@ -579,12 +587,19 @@ def storey(s):
         if r['apt'] is None and k is None and in_shaft: continue       # storey 1 lift shafts are unlabelled rooms: keep them open
         if r['apt'] is None and k is None:
             # public corridor / lobby: grey ceiling, round lamps every ~3 m along the long axis (owner's reference)
-            prism('Shell', r['poly']['outer'], r['poly']['holes'], Z + FLOOR_H - 0.006, Z + FLOOR_H - 0.002, plan3, None, 'M_CeilPublic', None)
+            ring_c, holes_c, skip_lamp = r['poly']['outer'], r['poly']['holes'], (lambda px, py: False)
+            if s == 1 and sr3_well and x0 > sr3_well[0] - 0.05 and x1 < sr3_well[2] + 0.05 and y0 < sr3_well[3] < y1:
+                # storey 1: the corridor that holds the stair has no ceiling under the storey-2 stair well (it was a grey
+                # plate across the flights at 2.99 m); the part under the top landing / entrance passage stays
+                yc = sr3_well[3]
+                ring_c, holes_c = [(x0, yc), (x1, yc), (x1, y1), (x0, y1)], []
+                skip_lamp = lambda px, py: py < yc + 0.2
+            prism('Shell', ring_c, holes_c, Z + FLOOR_H - 0.006, Z + FLOOR_H - 0.002, plan3, None, 'M_CeilPublic', None)
             lx, ly = x1 - x0, y1 - y0; L_ = max(lx, ly); n_ = max(1, round(L_ / 3.0)) if LAMPS else 0
             for i in range(n_):
                 t = (i + 0.5) / n_
                 px, py = (x0 + t * lx, (y0 + y1) / 2) if lx >= ly else ((x0 + x1) / 2, y0 + t * ly)
-                if not in_poly(px, py, r['poly']):
+                if not in_poly(px, py, r['poly']) or skip_lamp(px, py):
                     continue
                 ring = [(px + 0.16 * math.cos(a * math.pi / 12), py + 0.16 * math.sin(a * math.pi / 12)) for a in range(24)]
                 prism('Frames', ring, [], Z + FLOOR_H - 0.07, Z + FLOOR_H - 0.006, plan3, None, 'M_LampPublic', 'M_LightRim')

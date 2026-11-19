@@ -20,7 +20,7 @@
     (Pawn|Input|AddControllerYawInput :self self :Val lx)
     (Pawn|Input|AddControllerPitchInput :self self :Val ly))
   (bind run (Input|EnhancedActionValues|IA_Run))
-  (Class|CharacterMovementComponent|SetMaxWalkSpeed :self (Variables|Character|GetCharacterMovement) :MaxWalkSpeed (select run 400.0 150.0))
+  (Class|CharacterMovementComponent|SetMaxWalkSpeed :self (Variables|Character|GetCharacterMovement) :MaxWalkSpeed (select run 600.0 150.0))
   (bind j (Input|EnhancedActionValues|IA_Jump))
   (if (and j (not (Variables|Default|GetPrevJump)))
     (Character|Jump :self self))
