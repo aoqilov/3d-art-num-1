@@ -1,0 +1,13 @@
+; block 2 shows storeys 1..N (grey carcass) and, with Pardoz on, their scaffolding in green netting;
+; the crane top rides 15 m above storey N
+(fn Show ()
+  (bind n (Variables|Default|GetN))
+  (for _i (range 1 17)
+    (bind acts (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "B2S" (Utilities|String|ToString(Integer) _i)))))
+    (for e acts
+      (Rendering|SetActorHiddenInGame e (> _i n)))
+    (bind nets (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "B2N" (Utilities|String|ToString(Integer) _i)))))
+    (for s nets
+      (Rendering|SetActorHiddenInGame s (or (not (Variables|Default|GetPardoz)) (> _i n)))))
+  (bind k (Utilities|Casting|CastToBP_Kran (Actor|GetActorOfClass "/Game/Blok1/Qurilish/BP_Kran.BP_Kran_C")))
+  (Class|BPKran|SetHTarget :self k :HTarget (+ 1500.0 (* 300.0 (Math|Conversions|ToFloat(Integer) n)))))

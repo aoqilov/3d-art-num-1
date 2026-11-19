@@ -1,0 +1,4 @@
+; "Pardozlash": wrap the built storeys in scaffolding + green safety netting / take it off
+(fn PardozBtn ()
+  (Variables|Default|SetPardoz (not (Variables|Default|GetPardoz)))
+  (CallFunction|Show))

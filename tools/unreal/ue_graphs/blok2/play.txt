@@ -1,0 +1,10 @@
+; Play: one storey every 5 s up to 16 (from 16 it starts again at 0); pressed while playing = pause
+(fn PlayBtn ()
+  (if (Variables|Default|GetPlaying)
+    (Variables|Default|SetPlaying false)
+    (else
+      (if (>= (Variables|Default|GetN) 16)
+        (Variables|Default|SetN 0)
+        (CallFunction|Show))
+      (Variables|Default|SetT 0.0)
+      (Variables|Default|SetPlaying true))))

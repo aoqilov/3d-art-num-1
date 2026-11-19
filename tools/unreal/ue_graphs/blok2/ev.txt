@@ -1,0 +1,11 @@
+(event EventBeginPlay
+  (CallFunction|Show)
+  (UserInterface|Viewport|AddToViewport (UserInterface|CreateWidget "/Game/Blok1/UI/WBP_Blok2.WBP_Blok2_C" (Game|GetPlayerController 0)) 4))
+(event EventTick (DeltaSeconds)
+  (if (Variables|Default|GetPlaying)
+    (Variables|Default|SetT (+ (Variables|Default|GetT) DeltaSeconds))
+    (if (>= (Variables|Default|GetT) 5.0)
+      (Variables|Default|SetT 0.0)
+      (CallFunction|Plus)
+      (if (>= (Variables|Default|GetN) 16)
+        (Variables|Default|SetPlaying false)))))

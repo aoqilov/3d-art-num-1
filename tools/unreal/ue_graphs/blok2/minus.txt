@@ -1,0 +1,4 @@
+(fn Minus ()
+  (Variables|Default|SetPlaying false)
+  (Variables|Default|SetN (Math|Integer|Max(Integer) 0 (- (Variables|Default|GetN) 1)))
+  (CallFunction|Show))
