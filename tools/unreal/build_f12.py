@@ -1442,6 +1442,10 @@ for key in ('F1_Shell', 'F2_Shell', 'Typ_Shell'):
         bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, y, 0), plane_no=(0, 1, 0))
     bm.to_mesh(ob.data); bm.free(); ob.data.update()
     bpy.ops.object.select_all(action='DESELECT'); ob.select_set(True); bpy.context.view_layer.objects.active = ob
+    # the bevel's hardened custom normals were interpolated across the cuts -> streaky shading, white seams:
+    # drop them and rebuild plain normals (flat walls, smooth only across <30 deg)
+    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(30))
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_mode(type='FACE'); bpy.ops.object.mode_set(mode='OBJECT')
     cid = [(int(p.center.x // CELL), int(p.center.y // CELL)) for p in ob.data.polygons]
     cells = sorted(set(cid)); n = 0
