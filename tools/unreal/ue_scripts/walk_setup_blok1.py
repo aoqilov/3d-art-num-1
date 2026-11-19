@@ -48,6 +48,18 @@ with unreal.ScopedEditorTransaction("Blok-1 yurish: eshik, lift"):
         a.set_editor_property("tags", [unreal.Name("Blok1"), unreal.Name("S%d" % st)])
         nd += 1
 
+    # ---- flats' balcony doors: glazed leaves (black frame) swinging 90 degrees into the room, E opens / closes
+    for st in range(2, 17):
+        for g in W.get("balc", {}).get("F2" if st == 2 else "Typ", []):
+            hx, hy = g["hinge"]
+            a = eas.spawn_actor_from_class(door_cls, wp(hx, hy, (st - 1) * 3.0 + g["z"]), unreal.Rotator(0, 0, g["closed"]))
+            a.set_actor_label("Blok1_D_%02d_%d" % (st, nd)); a.set_folder_path("Blok1/Eshiklar")
+            a.get_component_by_class(unreal.StaticMeshComponent).set_editor_property("static_mesh", glass)
+            a.set_actor_scale3d(unreal.Vector(g["width"], 1.0, g["height"]))
+            a.set_editor_property("ClosedYaw", g["closed"]); a.set_editor_property("OpenYaw", g["opened"])
+            a.set_editor_property("tags", [unreal.Name("Blok1"), unreal.Name("S%d" % st), unreal.Name("Balkon")])
+            nd += 1
+
     # ---- lifts and their landing doors
     lift_cls = unreal.load_asset("/Game/Blok1/Walk/BP_Blok1Lift").generated_class()
     for sh, L in W["lifts"].items():

@@ -296,8 +296,10 @@ def storey(s):
         y0, y1 = (r['y0'], r['y1']) if ax_x else (r['y0'] - e, r['y1'] + e)
         prism('Shell', [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], [], Z + z0, Z + z1, plan3, top, bot, wall_side)
 
-    def glazing(r, z0, z1, step, ext, transom=None, frame='M_Frame', door=False):
-        """Profiled frame + double glazing inside opening r (plan rect), storey-local heights z0..z1."""
+    def glazing(r, z0, z1, step, ext, transom=None, frame='M_Frame', door=False, leaf=0):
+        """Profiled frame + double glazing inside opening r (plan rect), storey-local heights z0..z1.
+        leaf=+1/-1: a flat's balcony door. Only the outer frame is built here; the glazed leaf is a BP_Blok1Door
+        (Kit_DoorGlass, walk.json 'balc') hinged on the frame that swings 90 degrees into the room (room on +leaf side)."""
         ax = r['axis']; u0, u1 = (r['x0'], r['x1']) if ax == 'x' else (r['y0'], r['y1'])
         t0, t1 = (r['y0'], r['y1']) if ax == 'x' else (r['x0'], r['x1'])
         if ext: c = (t0 + 0.085) if (ext[1] if ax == 'x' else ext[0]) < 0 else (t1 - 0.085)
@@ -310,6 +312,18 @@ def storey(s):
         if not door: bar(u0, u1, z0, z0 + F)
         bar(u0, u1, z1 - F, z1)
         span = u1 - u0; n = max(1, round(span / step))
+        if leaf:
+            # glazed leaf(s): one, or a pair hinged on both frame posts for wide openings
+            ax_ = r['axis']; n_ = 1 if span < 1.3 else 2; wl = (span - 2 * F - 0.008) / n_
+            for k in range(n_):
+                hu = u0 + F + 0.004 if k == 0 else u1 - F - 0.004; d = 1 if k == 0 else -1
+                hx, hy = (hu, c) if ax_ == 'x' else (c, hu)
+                closed = (0.0 if d > 0 else 180.0) if ax_ == 'x' else (90.0 if d > 0 else -90.0)
+                into = (90.0 if leaf > 0 else -90.0) if ax_ == 'x' else (0.0 if leaf > 0 else 180.0)   # leaf direction when open
+                opened = closed + ((into - closed + 180.0) % 360.0 - 180.0)                             # shortest turn
+                BALC.setdefault(CUR[0].rstrip('_'), []).append(dict(hinge=(round(hx, 3), round(hy, 3)), width=round(wl - 0.004, 3),
+                    z=round(Z + z0 + 0.005, 3), height=round(z1 - F - z0 - 0.01, 3), closed=closed, opened=opened))
+            return c
         cuts = [u0 + span * i / n for i in range(1, n)]
         for u in cuts: bar(u - 0.04, u + 0.04, z0, z1)
         if transom: bar(u0, u1, transom - 0.035, transom + 0.035)
@@ -409,7 +423,9 @@ def storey(s):
         if s == 1 and o['kind'] == 'door' and outside:
             glazing(o, SLAB, head, 0.9, ext_side(o), 2.08, door=True)
         elif to_balc or (outside and o['kind'] != 'lift'):
-            glazing(o, SLAB, head, 0.7 if o['span'] > 1.3 else 2, ext_side(o), door=True)
+            room = [k for k, r in enumerate(sides) if r and r['kind'] != 'balcony' and r['apt'] is not None]
+            lf = 0 if (s == 1 or not to_balc or o['kind'] != 'door' or not room) else (1 if room[0] == 1 else -1)   # room on +u side?
+            glazing(o, SLAB, head, 0.7 if o['span'] > 1.3 else 2, ext_side(o), door=True, leaf=lf)
         elif o['kind'] in ('door', 'lift'):
             # closed doors. Flat entrance (public corridor | flat): dark-brown steel door, peephole, black lever.
             # Interior (inside a flat): oak veneer leaf with oak casings and black levers on both sides. Lift: steel.
@@ -892,7 +908,7 @@ def furnish_ground(p):
     pbox(pn, 'M_WoodDark', hx1 - 0.27, 16.88, hx1 - 0.23, 16.92, F0 + 0.5, F0 + 0.6)
     pbox(pn, 'M_Rug', 15.2, 17.0, 16.5, 17.75, F0 - 0.001, F0 + 0.012)
 
-LIGHTS = {}; DOORS = {}; LIFTS = {}; GATES = []; PGATES = {}; KIT = {}; PASSAGES = []; OPLOG = []
+LIGHTS = {}; DOORS = {}; LIFTS = {}; GATES = []; PGATES = {}; KIT = {}; PASSAGES = []; OPLOG = []; BALC = {}
 LIFT_X = (12.51, 14.5); LIFT_Y = ((10.91, 12.9), (13.11, 16.1))      # shaft interiors (plan)
 for key, pre in ((1, 'F1_'), (2, 'F2_'), (3, 'Typ_')):
     CUR[0] = pre; storey(key)
@@ -949,7 +965,7 @@ pbox('DoorGlass', 'M_Frame', 0, -0.025, 1, 0.025, 1 - 0.04, 1)
 gquad('DoorGlass', 'M_Glass', 'x', G_, 1 - G_, 0, 0.05, 1 - 0.04)
 for sg in (-1, 1):
     pbox('DoorGlass', 'M_Handle', 0.86, sg * 0.025 + (0 if sg > 0 else -0.04), 0.88, sg * 0.025 + (0.04 if sg > 0 else 0), 0.3, 0.6)
-json.dump(dict(doors=DOORS, gates=GATES, pgates=PGATES, lifts=LIFTS, lift_x=LIFT_X, lift_y=LIFT_Y), open(os.path.join(OUT, 'walk.json'), 'w'), indent=0)
+json.dump(dict(doors=DOORS, gates=GATES, pgates=PGATES, balc=BALC, lifts=LIFTS, lift_x=LIFT_X, lift_y=LIFT_Y), open(os.path.join(OUT, 'walk.json'), 'w'), indent=0)
 print('DOORS', {k: len(v) for k, v in DOORS.items()}, 'LIFTS', LIFTS)
 CUR[0] = 'Fac_'
 
@@ -1499,7 +1515,7 @@ bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, 'blok1_full.glb'), export_f
                           export_image_format='AUTO', export_texcoords=True, export_normals=True, export_materials='EXPORT')
 print('DONE', os.path.join(OUT, 'blok1_full.glb'))
 # facade gates (portal doors) are added after the first dump: write walk.json again with everything
-json.dump(dict(doors=DOORS, gates=GATES, pgates=PGATES, lifts=LIFTS, lift_x=LIFT_X, lift_y=LIFT_Y), open(os.path.join(OUT, 'walk.json'), 'w'), indent=0)
+json.dump(dict(doors=DOORS, gates=GATES, pgates=PGATES, balc=BALC, lifts=LIFTS, lift_x=LIFT_X, lift_y=LIFT_Y), open(os.path.join(OUT, 'walk.json'), 'w'), indent=0)
 print('GATES', len(GATES))
 json.dump(KIT, open(os.path.join(OUT, 'kit.json'), 'w'), indent=0)
 print('KIT', {k: len(v) for k, v in KIT.items()})
