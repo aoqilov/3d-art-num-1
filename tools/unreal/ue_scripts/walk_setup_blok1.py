@@ -77,6 +77,14 @@ with unreal.ScopedEditorTransaction("Blok-1 yurish: eshik, lift"):
             a.set_editor_property("tags", [unreal.Name(t) for t in dict.fromkeys(tags)])
             if "_LiftBtn" in lab: a.static_mesh_component.set_material(0, unreal.load_asset("/Game/Blok1/Mat/MI_LiftBtnOff"))
 
+    # ---- E targets: everything the player can use gets U<storey> (BP_Blok1Player FindUse looks only at its storey)
+    for a in eas.get_all_level_actors():
+        lab = a.get_actor_label(); st = 0
+        if lab.startswith("Blok1_D_"): st = int(lab[8:10])
+        elif lab.startswith("Blok1_Q") and any(k in lab for k in ("_LiftDoor", "_LiftBtn", "_LiftPlate")): st = int(lab[7:9])
+        if st:
+            a.set_editor_property("tags", [unreal.Name(t) for t in dict.fromkeys([str(t) for t in a.tags] + ["U%d" % st])])
+
     # ---- walk start: ground-floor hall in front of the lifts, facing them
     ws = eas.spawn_actor_from_class(unreal.TargetPoint, wp(15.9, 13.0, 0.2 + 0.9), unreal.Rotator(0, 0, 180.0))
     ws.set_actor_label("Blok1_WalkStart"); ws.set_folder_path("Blok1")
