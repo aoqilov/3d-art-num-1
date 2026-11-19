@@ -431,16 +431,18 @@ def storey(s):
                 # blueprint slides it into the wall when the cabin stops here)
                 shaft = 'A' if cy < 13.0 else 'B'
                 lx = t1 + 0.004
-                P_ = part('LiftDoor' + shaft)
-                if shaft == 'A':
-                    pbox('LiftDoorA', 'M_Steel', lx, u0 + 0.045, lx + 0.035, u1 - 0.045, Z + SLAB + 0.005, Z + head - 0.045)
-                    pbox('LiftDoorA', 'M_Handle', lx + 0.035, (u0 + u1) / 2 - 0.003, lx + 0.037, (u0 + u1) / 2 + 0.003, Z + SLAB + 0.005, Z + head - 0.045)
-                else:
-                    # big lift: centre-opening pair (the single 1.6 m leaf slid over the small lift's doorway).
-                    # LiftDoorB slides to -y, LiftDoorBR to +y, each by half the opening.
-                    um = (u0 + u1) / 2; part('LiftDoorBR')
-                    pbox('LiftDoorB', 'M_Steel', lx, u0 + 0.045, lx + 0.035, um - 0.002, Z + SLAB + 0.005, Z + head - 0.045)
-                    pbox('LiftDoorBR', 'M_Steel', lx, um + 0.002, lx + 0.035, u1 - 0.045, Z + SLAB + 0.005, Z + head - 0.045)
+                # Centre-opening pair inside the wall thickness: LiftDoor<sh> slides to -y, LiftDoor<sh>R to +y, each by its
+                # own width (walk.json door_y; the lift blueprint), and disappears into the wall (plain wall >= 1 m on both
+                # sides of each doorway). The two shafts use different depths so their leaves pass in the wall between them.
+                um = (u0 + u1) / 2
+                d0 = t0 + (0.10 if shaft == 'A' else 0.135); d1 = d0 + 0.03       # A 6 cm, B 2.5-4.5 cm behind the lobby face
+                part('LiftDoor' + shaft); part('LiftDoor' + shaft + 'R')
+                pbox('LiftDoor' + shaft, 'M_Steel', d0, u0 + 0.045, d1, um - 0.002, Z + SLAB + 0.005, Z + head - 0.045)
+                pbox('LiftDoor' + shaft + 'R', 'M_Steel', d0, um + 0.002, d1, u1 - 0.045, Z + SLAB + 0.005, Z + head - 0.045)
+                # brushed-steel portal on the lobby face around the casing
+                b(u0 - 0.09, u0, SLAB, head + 0.09, t1, t1 + 0.012, 'M_Steel'); b(u1, u1 + 0.09, SLAB, head + 0.09, t1, t1 + 0.012, 'M_Steel')
+                b(u0, u1, head, head + 0.09, t1, t1 + 0.012, 'M_Steel')
+                lx = d1
                 if s == 3 or s == 1: LIFTS[shaft] = dict(door_y=(u0, u1), door_x=lx)
             elif interior and all(a is None for a in apts):
                 pass                                   # public <-> public (lobby, corridor, stair): open doorway, casing only
