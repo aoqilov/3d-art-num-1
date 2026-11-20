@@ -1,0 +1,50 @@
+(event UserInterface|EventPreConstruct (IsDesignTime)
+  (Widget|SetText(Text) (Variables|WBP_Blok1Btn|GetLbl) (Utilities|Text|ToText(String) (Variables|Default|GetLabel))))
+
+(event UserInterface|EventConstruct)
+
+(event UserInterface|EventTick (MyGeometry InDeltaTime))
+
+(event OnClicked(Btn)
+  (bind _returnvalue (Game|GetPlayerController 0))
+  (bind _returnvalue_1 (Game|GetPlayerPawn 0))
+  (bind _value (Variables|Default|GetValue))
+  (switch Utilities|FlowControl|Switch|SwitchonInt (Variables|Default|GetAction)
+    (:0
+      (bind _outactors (Actor|GetAllActorsWithTag "Dizayn"))
+      (for _array_element _outactors
+        (Rendering|SetActorHiddenInGame _array_element (== _value 0))
+        (Collision|SetActorEnableCollision _array_element (== _value 1)))
+      (bind _outactors_1 (Actor|GetAllActorsWithTag "Topshirish"))
+      (for _array_element_1 _outactors_1
+        (Rendering|SetActorHiddenInGame _array_element_1 (== _value 1))
+        (Collision|SetActorEnableCollision _array_element_1 (== _value 0))))
+    (:1
+      (for _index (range 1 17)
+        (bind _outactors (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "S" (Utilities|String|ToString(Integer) _index)))))
+        (for _array_element _outactors
+          (Rendering|SetActorHiddenInGame _array_element (and (> _value 0) (> _index _value)))))
+      (bind _outactors (Actor|GetAllActorsWithTag "Fasad"))
+      (for _array_element _outactors
+        (Rendering|SetActorHiddenInGame _array_element (> _value 0))))
+    (:2
+      (bind _returnvalue_2 (Actor|GetActorOfClass "/Script/Engine.DirectionalLight"))
+      (bind _asdirectional_light (Utilities|Casting|CastToDirectionalLight _returnvalue_2))
+      (Transformation|SetActorRotation _asdirectional_light (Math|Rotator|MakeRotator 0.0 (Utilities|Array|Get(acopy) (Variables|Default|GetSunPitch) _value) (Utilities|Array|Get(acopy) (Variables|Default|GetSunYaw) _value)))
+      (Rendering|Components|Light|SetIntensity (Class|Light|GetLightComponent _asdirectional_light) (Utilities|Array|Get(acopy) (Variables|Default|GetSunLux) _value)))
+    (:3
+      (if (< _value 0)
+        (Game|Player|SetViewTargetWithBlend _returnvalue (Game|GetPlayerPawn 0) 1.0)
+        (else
+          (bind _outactors (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "Cam" (Utilities|String|ToString(Integer) _value)))))
+          (if (> (Utilities|Array|Length _outactors) 0)
+            (Game|Player|SetViewTargetWithBlend _returnvalue (Utilities|Array|Get(acopy) _outactors) 1.5)))))
+    (:4
+      (bind _outactors (Actor|GetAllActorsWithTag "Lift"))
+      (for _array_element _outactors
+        (Utilities|Time|SetTimerbyFunctionName _array_element (Utilities|String|Append "Go" (Utilities|String|ToString(Integer) _value)) 0.01)))
+    (:5
+      (Game|Player|SetViewTargetWithBlend (Game|GetPlayerController 0) _returnvalue_1 0.5)
+      (bind _outactors (Actor|GetAllActorsWithTag "WalkStart"))
+      (if (> (Utilities|Array|Length _outactors) 0)
+        (Transformation|SetActorLocationAndRotation _returnvalue_1 (Transformation|GetActorLocation (Utilities|Array|Get(acopy) _outactors)) (Transformation|GetActorRotation (Utilities|Array|Get(acopy) _outactors)))))))
