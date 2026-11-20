@@ -33,6 +33,11 @@ for x0, z0, x1, z1, w, dep in G['ramps']:
     landings.append(LineString([tuple(b), tuple(b + d * 8)]).buffer(w / 2 + 0.5, cap_style='flat'))
     ramp_ends.append((a, d, w))
 ramp_g = unary_union(ramps)
+# the trench outline's bottom edge is where the ramp enters the car park: no wall there (owner 2026-11-21: "exit closed")
+mouths = []
+for x0, z0, x1, z1, w, dep in G['ramps']:
+    b = np.array([x1, z1]); d = (b - np.array([x0, z0])); d /= np.linalg.norm(d); n_ = np.array([-d[1], d[0]])
+    mouths.append(LineString([tuple(b - n_ * (w / 2 + 0.5)), tuple(b + n_ * (w / 2 + 0.5))]))
 # lift cores (block plan metres): stair + lifts x 9.6..17.0, y 10.3..16.4; lobby in front of the lift doors x 17.0..19.2
 cores, lobbies, doors = [], [], []
 for i in gp.BLOCKS:
@@ -80,6 +85,7 @@ for p in (floor.geoms if isinstance(floor, MultiPolygon) else [floor]):
         for (x1, z1), (x2, z2) in zip(c[:-1], c[1:]):
             L = math.hypot(x2 - x1, z2 - z1)
             if L < 0.05: continue
+            if any(m.distance(Point((x1 + x2) / 2, (z1 + z2) / 2)) < 0.3 for m in mouths): continue
             nx, nz = (z2 - z1) / L, -(x2 - x1) / L
             if not p.contains(Point((x1 + x2) / 2 + nx * 0.05, (z1 + z2) / 2 + nz * 0.05)): nx, nz = -nx, -nz
             walls.append(B(x1, z1) + B(x2, z2) + B((x1 + x2) / 2 + nx, (z1 + z2) / 2 + nz))
