@@ -93,7 +93,8 @@ for x0, z0, x1, z1, w, dep in G.get('ramps', []):
     for side in (-1, 1):
         o = n.normalized() * (w / 2 + 0.15) * side
         box(a + o, b + o, 0.3, zb - 0.2, 1.0, 2)                      # side wall + parapet
-    box(b - n * 1.05 + d * 0.15, b + n * 1.05 + d * 0.15, 0.3, zb, 0.0, 7)   # gate (placeholder: dark panel)
+    pass  # gate removed 2026-11-20: the ramps now lead into the car park (parking_layout.py)
+    # box(b - n * 1.05 + d * 0.15, b + n * 1.05 + d * 0.15, 0.3, zb, 0.0, 7)   # gate (placeholder: dark panel)
     r0 = b - d * 7.0
     face([Vector((*(r0 - n * 1.1).xy, 0.0)), Vector((*(b - n * 1.1).xy, 0.0)), Vector((*(b + n * 1.1).xy, 0.0)), Vector((*(r0 + n * 1.1).xy, 0.0))], 2)
     face([Vector((*(r0 + n * 1.1).xy, -0.3)), Vector((*(b + n * 1.1).xy, -0.3)), Vector((*(b - n * 1.1).xy, -0.3)), Vector((*(r0 - n * 1.1).xy, -0.3))], 2)
