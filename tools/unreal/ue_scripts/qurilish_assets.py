@@ -42,7 +42,7 @@ root = hs[0]
 hm, mast = comp(k, unreal.StaticMeshComponent, "Mast", root); sm(mast, meshes.get("Kran_Mast"))
 ht, top = comp(k, unreal.StaticMeshComponent, "Top", root); sm(top, meshes.get("Kran_Top"))
 htr, trol = comp(k, unreal.StaticMeshComponent, "Trolley", ht); sm(trol, meshes.get("Kran_Trolley"))
-trol.set_editor_property("relative_location", unreal.Vector(2500, 0, 0))
+trol.set_editor_property("relative_location", unreal.Vector(1700, 0, 0))
 hc, cab = comp(k, unreal.StaticMeshComponent, "Cable", htr); sm(cab, meshes.get("Kran_Cable"))
 cab.set_editor_property("relative_location", unreal.Vector(0, 0, 30))
 hh, hook = comp(k, unreal.StaticMeshComponent, "Hook", htr); sm(hook, meshes.get("Kran_Hook"))

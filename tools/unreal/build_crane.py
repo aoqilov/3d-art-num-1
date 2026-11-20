@@ -1,7 +1,7 @@
 # Tower crane for the construction animation (Unreal BP_Kran). Five separate objects, each with its own pivot, so the
 # blueprint can move them:
 #   Kran_Mast    lattice mast 60 m, pivot at the TOP centre (the blueprint lifts it as storeys rise; the rest is underground)
-#   Kran_Top     slewing part: turntable, cab, A-frame peak, 50 m jib along +X, 14 m counter-jib with ballast, ties
+#   Kran_Top     slewing part: turntable, cab, A-frame peak, 30 m jib along +X, 14 m counter-jib with ballast, ties
 #                pivot at the slewing ring (top of mast)
 #   Kran_Trolley trolley under the jib chord, pivot at the trolley centre (blueprint moves it along +X)
 #   Kran_Cable   1 m vertical cable pair, pivot at the top (blueprint scales Z = hook depth)
@@ -77,13 +77,13 @@ top.box((0.2, -1.9, 1.8), (2.2, 1.6, 2.4), YEL)                            # cab
 top.box((0.2, -2.72, 2.0), (1.9, 0.05, 1.3), GLASS)                        # cab glass (front)
 top.box((1.32, -1.9, 2.0), (0.05, 1.3, 1.3), GLASS)                        # cab glass (side)
 lattice(top, (0, 0, 0.7), (0, 0, 9.0), 1.4, 1.4, 0.06, YEL)                # A-frame peak (tower head)
-lattice(top, (0.5, 0, 1.6), (50, 0, 1.6), 1.2, 2.0, 0.055, YEL)            # jib, 50 m along +X
+lattice(top, (0.5, 0, 1.6), (30, 0, 1.6), 1.2, 2.0, 0.055, YEL)            # jib, 30 m along +X (owner 2026-11-20: shorter)
 lattice(top, (-0.5, 0, 1.6), (-14, 0, 1.6), 1.2, 2.0, 0.055, YEL)          # counter-jib
 for i in range(4):                                                         # ballast blocks at the counter-jib end
     top.box((-12.2 + i * 0.9 * 0, -0.0, -0.2 - i * 0.0), (0.1, 0.1, 0.1), DARK)
 top.box((-12.0, 0, 0.3), (3.0, 2.2, 2.6), DARK)
 top.box((-7.0, 0, 2.6), (2.0, 1.6, 0.8), YEL)                              # machinery deck / winch
-for (xa, za) in ((50, 2.2), (25, 2.2), (-14, 2.2)):                         # pendant ties from the peak
+for (xa, za) in ((30, 2.2), (15, 2.2), (-14, 2.2)):                         # pendant ties from the peak
     top.bar((0, 0.25, 9.0), (xa, 0.25, za), 0.05, STEEL); top.bar((0, -0.25, 9.0), (xa, -0.25, za), 0.05, STEEL)
 top.done()
 

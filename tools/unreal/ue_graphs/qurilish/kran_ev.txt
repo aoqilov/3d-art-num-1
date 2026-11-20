@@ -8,7 +8,7 @@
   (Transformation|SetRelativeLocation (Variables|Default|GetMast) (Math|Vector|MakeVector 0.0 0.0 h))
   (Transformation|SetRelativeLocation (Variables|Default|GetTop) (Math|Vector|MakeVector 0.0 0.0 h))
   (Transformation|SetRelativeRotation (Variables|Default|GetTop) (Math|Rotator|MakeRotator 0.0 0.0 (* 40.0 (Math|Trig|Sin(Radians) (* t 0.22)))))
-  (Transformation|SetRelativeLocation (Variables|Default|GetTrolley) (Math|Vector|MakeVector (+ 2400.0 (* 1300.0 (Math|Trig|Sin(Radians) (* t 0.31)))) 0.0 0.0))
+  (Transformation|SetRelativeLocation (Variables|Default|GetTrolley) (Math|Vector|MakeVector (+ 1700.0 (* 1000.0 (Math|Trig|Sin(Radians) (* t 0.31)))) 0.0 0.0))
   (bind L (+ 650.0 (* 350.0 (Math|Trig|Sin(Radians) (* t 0.47)))))
   (Transformation|SetRelativeScale3D (Variables|Default|GetCable) (Math|Vector|MakeVector 1.0 1.0 (/ L 100.0)))
   (Transformation|SetRelativeLocation (Variables|Default|GetHook) (Math|Vector|MakeVector 0.0 0.0 (- 30.0 L))))

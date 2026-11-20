@@ -4,8 +4,10 @@
 import bpy, os, glob
 HERE = os.path.dirname(os.path.abspath(__file__)); SRC = os.path.join(HERE, 'kit_src'); OUT = os.path.join(HERE, 'kit_glb')
 os.makedirs(OUT, exist_ok=True)
+ONLY = [x for x in os.environ.get('ONLY', '').split(',') if x]      # e.g. ONLY=jacaranda_tree,shrub_02
 for g in sorted(glob.glob(os.path.join(SRC, '*', '*.gltf'))):
     name = os.path.basename(os.path.dirname(g))
+    if ONLY and name not in ONLY: continue
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=g)
     for a in list(bpy.data.actions): bpy.data.actions.remove(a)

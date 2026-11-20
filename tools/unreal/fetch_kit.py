@@ -7,7 +7,7 @@ def get(u):
 for i in IDS:
     try:
         f = json.loads(get(f"https://api.polyhaven.com/files/{i}"))
-        g = f["gltf"]["1k"]["gltf"]
+        g = f["gltf"][os.environ.get("RES", "1k")]["gltf"]
         d = os.path.join(os.path.dirname(__file__), "kit_src", i); os.makedirs(d, exist_ok=True)
         open(os.path.join(d, os.path.basename(g["url"])), "wb").write(get(g["url"]))
         n = 0
