@@ -51,6 +51,10 @@ PADS = [  # (kind, centre px, w m, d m, angle deg (plan), label)
     ('fountain', (397, 632), 9, 9, 0, 'south court dry fountain'),
     ('play', (450, 632), 18, 12, 0, 'south court playground'),
 ]
+# underground parking ramps (owner 2026-11-20: the complex has a basement car park): start on a driveway (px) -> end (px);
+# 6.5 m wide, down to RAMP_DEPTH at the end (gate to the car park), concrete side walls with a 1 m parapet
+RAMPS = [((162, 238), (161, 286)), ((250, 452), (256, 504)), ((364, 598), (348, 549))]
+RAMP_W, RAMP_DEPTH = 6.5, 3.6
 Z_PAVE, Z_ROAD, Z_CURB, Z_SOIL, Z_PAD = 0.02, -0.10, 0.17, 0.10, 0.03
 CURB_W = 0.15
 
@@ -161,6 +165,15 @@ def main():
             p = Point(x + rng.uniform(-2, 2), z + rng.uniform(-2, 2))
             if inner.contains(p): trees.append([r2(p.x), r2(p.y)])
 
+    ramps, ramp_g = [], []
+    for a0, a1 in RAMPS:
+        p0, p1 = np.array(to_m(*a0)), np.array(to_m(*a1))
+        ramps.append([r2(p0[0]), r2(p0[1]), r2(p1[0]), r2(p1[1]), RAMP_W, RAMP_DEPTH])
+        ramp_g.append(LineString([tuple(p0), tuple(p1)]).buffer(RAMP_W / 2 + 0.3, cap_style='flat'))
+    ramp_g = unary_union(ramp_g)
+    trees = [t for t in trees if not ramp_g.buffer(2.5).contains(Point(t))]
+    road, bed, paving = road.difference(ramp_g), bed.difference(ramp_g), paving.difference(ramp_g)
+    for k in pads: pads[k] = pads[k].difference(ramp_g)
     soil = bed.buffer(-CURB_W, join_style='mitre')
     walls = []
     def faces(g, look_inside, zb, zt):
@@ -181,7 +194,7 @@ def main():
            'site': [r2(v) for v in np.array(SITE.exterior.coords)[:-1].ravel()],
            'road': rings(road), 'bed': rings(bed), 'soil': rings(soil), 'curb': rings(bed.difference(soil)),
            'paving': rings(paving), 'under': rings(bld.buffer(2.0, join_style='mitre').intersection(site)),
-           'pads': {k: rings(v) for k, v in pads.items()}, 'walls': walls,
+           'pads': {k: rings(v) for k, v in pads.items()}, 'walls': walls, 'ramps': ramps,
            'z': {'pave': Z_PAVE, 'road': Z_ROAD, 'curb': Z_CURB, 'soil': Z_SOIL, 'pad': Z_PAD},
            'trees': trees, 'young': [],
            'entrances': {i: {'portal': [r2(v) for v in portals[i][0]], 'door': [r2(v) for v in doors[i][0]]} for i in BLOCKS},
@@ -200,6 +213,7 @@ def main():
         for p in plist(g):
             m = np.zeros(img.shape[:2], np.uint8); cv2.fillPoly(m, P(p), 255); lay[m > 0] = col
     fill(site, (190, 196, 200)); fill(paving, (190, 196, 200)); fill(road, (70, 70, 74)); fill(bed, (90, 170, 90))
+    fill(ramp_g, (40, 40, 160))
     fill(pads['play'], (70, 120, 230)); fill(pads['sport'], (60, 140, 200)); fill(pads['fountain'], (220, 200, 140)); fill(bld, (245, 245, 245))
     for p in plist(bed): cv2.polylines(lay, P(p), True, (40, 110, 40), 1)
     for x, z in trees: cv2.circle(lay, (int((x / PX + CX) * S), int((z / PX + CY) * S)), 5, (30, 100, 30), -1)

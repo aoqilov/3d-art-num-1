@@ -11,7 +11,8 @@ eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 SDS = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem); BFL = unreal.SubobjectDataBlueprintFunctionLibrary
 P = json.load(open(ROOT + "/out/props.json"))
 P = {"prop": P}
-MODELS = {"prop": ["prop_lamp", "prop_bench", "prop_bin", "prop_bollard"]}     # build_props.py placeholders
+MODELS = {"prop": ["prop_lamp", "prop_bench", "prop_bin", "prop_bollard", "prop_dome", "prop_slide", "prop_swing", "prop_spring",
+                   "prop_hoop", "prop_pullup", "prop_fountain", "prop_jets"]}     # build_props.py placeholders
 
 # placeholder -> real asset (owner: Fab models later). out/model_map.json: {"jacaranda_tree": "/Game/Fab/.../SM_Tree", ...}
 import os
@@ -65,3 +66,47 @@ for kind, rows in P.items():
         act.set_editor_property("is_spatially_loaded", False)
         counts[m] = comp.get_instance_count()
 print("props ok", counts)
+
+# ---- water for the fountain jets: translucent, slightly emissive (placeholder until a Niagara fountain)
+MEL = unreal.MaterialEditingLibrary
+wp = "/Game/Kompleks/Mat/M_Water"
+if EAL.does_asset_exist(wp) and globals().get("WATER_REBUILD", False): EAL.delete_asset(wp)
+if not EAL.does_asset_exist(wp):
+    w = AT.create_asset("M_Water", "/Game/Kompleks/Mat", unreal.Material, unreal.MaterialFactoryNew())
+    w.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    w.set_editor_property("translucency_lighting_mode", unreal.TranslucencyLightingMode.TLM_SURFACE)
+    for prop, val in ((unreal.MaterialProperty.MP_OPACITY, 0.16), (unreal.MaterialProperty.MP_ROUGHNESS, 0.05), (unreal.MaterialProperty.MP_SPECULAR, 1.0)):
+        c = MEL.create_material_expression(w, unreal.MaterialExpressionConstant, -300, 0); c.set_editor_property("r", val)
+        MEL.connect_material_property(c, "", prop)
+    col = MEL.create_material_expression(w, unreal.MaterialExpressionConstant3Vector, -300, -200)
+    col.set_editor_property("constant", unreal.LinearColor(0.45, 0.6, 0.7, 1)); MEL.connect_material_property(col, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    MEL.recompile_material(w); EAL.save_loaded_asset(w, False)
+if "prop_jets" in mesh and "prop_jets" not in MAP:
+    jm = mesh["prop_jets"]
+    s = sms.get_nanite_settings(jm)
+    if s.enabled: s.enabled = False; sms.set_nanite_settings(jm, s, apply_changes=True)     # translucent: no Nanite
+    for i in range(len(jm.static_materials)): jm.set_material(i, unreal.load_asset(wp))
+    EAL.save_loaded_asset(jm, False)
+
+# ---- real light for the street lamps and bollards; tag "Chiroq" = the time bar switches them on at night
+for a in eas.get_all_level_actors():
+    if a.get_actor_label().startswith("Kompleks_L_"): eas.destroy_actor(a)
+nl = 0
+for r in json.load(open(ROOT + "/out/props.json")):
+    x, y, z, yaw, sc, m = r[:6]
+    if m not in ("prop_lamp", "prop_bollard"): continue
+    lamp = m == "prop_lamp"
+    pl = eas.spawn_actor_from_class(unreal.PointLight, unreal.Vector(x, y, z + (410.0 if lamp else 62.0)))
+    pl.set_actor_label("Kompleks_L_%d" % nl); pl.set_folder_path("Kompleks/Chiroqlar")
+    lc = pl.get_component_by_class(unreal.PointLightComponent)
+    lc.set_editor_property("intensity_units", unreal.LightUnits.LUMENS)
+    lc.set_editor_property("intensity", 45.0 if lamp else 4.0)            # scene scale: the level sun is 6 lux (see ui_setup_blok1.py)
+    lc.set_editor_property("use_temperature", True); lc.set_editor_property("temperature", 3200.0)
+    lc.set_editor_property("attenuation_radius", 1500.0 if lamp else 350.0)
+    lc.set_editor_property("source_radius", 10.0)
+    lc.set_editor_property("cast_shadows", False)
+    lc.set_editor_property("max_draw_distance", 6000.0); lc.set_editor_property("max_distance_fade_range", 1000.0)
+    pl.set_editor_property("tags", [unreal.Name("Kompleks"), unreal.Name("Chiroq")])
+    pl.set_editor_property("is_spatially_loaded", False)
+    nl += 1
+print("lamp lights", nl)

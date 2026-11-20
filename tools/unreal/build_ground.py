@@ -19,9 +19,9 @@ def P(x, z):
     return ux / 100.0, -uy / 100.0
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
-MATS = ['M_GP_Pavers', 'M_GP_Asphalt', 'M_GP_Curb', 'M_GP_Soil', 'M_GP_Play', 'M_GP_Sport', 'M_GP_Fountain']
+MATS = ['M_GP_Pavers', 'M_GP_Asphalt', 'M_GP_Curb', 'M_GP_Soil', 'M_GP_Play', 'M_GP_Sport', 'M_GP_Fountain', 'M_GP_Gate']
 COL = {'M_GP_Pavers': (0.42, 0.40, 0.38), 'M_GP_Asphalt': (0.08, 0.08, 0.085), 'M_GP_Curb': (0.55, 0.55, 0.53), 'M_GP_Soil': (0.10, 0.16, 0.05),
-       'M_GP_Play': (0.6, 0.2, 0.1), 'M_GP_Sport': (0.1, 0.35, 0.25), 'M_GP_Fountain': (0.6, 0.6, 0.6)}
+       'M_GP_Play': (0.6, 0.2, 0.1), 'M_GP_Sport': (0.1, 0.35, 0.25), 'M_GP_Fountain': (0.6, 0.6, 0.6), 'M_GP_Gate': (0.03, 0.03, 0.03)}
 me = bpy.data.meshes.new('Genplan_Ground')
 for n in MATS:
     m = bpy.data.materials.new(n); m.use_nodes = True
@@ -35,7 +35,12 @@ def face(pts, mi):
     except ValueError:
         return
     f.material_index = mi
-    for lp in f.loops: lp[uv].uv = (lp.vert.co.x, lp.vert.co.y)
+    f.normal_update(); n = f.normal
+    if abs(n.z) > 0.5:
+        for lp in f.loops: lp[uv].uv = (lp.vert.co.x, lp.vert.co.y)
+    else:                                                       # vertical face: along-wall x z (no streaks)
+        t = Vector((-n.y, n.x, 0)).normalized()
+        for lp in f.loops: lp[uv].uv = (lp.vert.co.dot(t), lp.vert.co.z)
 
 def flat(polys, z, mi):
     """polys = [[outer flat xz], [hole], ...]; up-facing triangles at height z"""
@@ -69,6 +74,30 @@ for x1, z1, x2, z2, nx, nz, zb, zt in G['walls']:
     L = (b - a).length
     for lp, t in zip(f.loops, ((0, zb), (L, zb), (L, zt), (0, zt)) if (q[0].z == zb and (q[1] - q[0]).length > 0 and q[0].xy == a.xy) else ((L, zt), (0, zt), (0, zb), (L, zb))):
         lp[uv].uv = t
+# parking ramps: sloped asphalt, side walls with a 1 m parapet, a dark gate at the bottom, a roof slab over the last 7 m
+def quad(pts, mi):
+    face(pts, mi)
+def box(c0, c1, w, z0, z1, mi):
+    """wall box along c0->c1 (Blender xy), w thick"""
+    d = (c1 - c0).normalized(); n = Vector((-d.y, d.x, 0)) * (w / 2)
+    v = [c0 - n, c1 - n, c1 + n, c0 + n]
+    for i in range(4):
+        a, b = v[i], v[(i + 1) % 4]
+        face([Vector((a.x, a.y, z0)), Vector((b.x, b.y, z0)), Vector((b.x, b.y, z1)), Vector((a.x, a.y, z1))], mi)
+    face([Vector((p.x, p.y, z1)) for p in v], mi)
+for x0, z0, x1, z1, w, dep in G.get('ramps', []):
+    a = Vector((*P(x0, z0), 0)); b = Vector((*P(x1, z1), 0))
+    d = (b - a).normalized(); n = Vector((-d.y, d.x, 0)) * (w / 2); L = (b - a).length
+    zt, zb = Z['road'], -dep
+    face([Vector((*(a - n).xy, zt)), Vector((*(b - n).xy, zb)), Vector((*(b + n).xy, zb)), Vector((*(a + n).xy, zt))], 1)
+    for side in (-1, 1):
+        o = n.normalized() * (w / 2 + 0.15) * side
+        box(a + o, b + o, 0.3, zb - 0.2, 1.0, 2)                      # side wall + parapet
+    box(b - n * 1.05 + d * 0.15, b + n * 1.05 + d * 0.15, 0.3, zb, 0.0, 7)   # gate (placeholder: dark panel)
+    r0 = b - d * 7.0
+    face([Vector((*(r0 - n * 1.1).xy, 0.0)), Vector((*(b - n * 1.1).xy, 0.0)), Vector((*(b + n * 1.1).xy, 0.0)), Vector((*(r0 + n * 1.1).xy, 0.0))], 2)
+    face([Vector((*(r0 + n * 1.1).xy, -0.3)), Vector((*(b + n * 1.1).xy, -0.3)), Vector((*(b - n * 1.1).xy, -0.3)), Vector((*(r0 - n * 1.1).xy, -0.3))], 2)
+    box(r0 - n * 1.1, r0 + n * 1.1, 0.3, -0.3, 0.0, 2)                # roof slab front edge
 bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.002)
 bm.to_mesh(me); bm.free()
 for p in me.polygons: p.use_smooth = False

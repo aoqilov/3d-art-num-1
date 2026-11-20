@@ -66,7 +66,7 @@ MEL.recompile_material(m); EAL.save_loaded_asset(m, False)
 LOOK = {"M_GP_Pavers": ("Pavers", 2.0, (0.95, 0.88, 0.82), 1.0), "M_GP_Asphalt": ("Asphalt", 4.0, (0.42, 0.42, 0.44), 1.0),
         "M_GP_Curb": ("Curb", 2.0, (1.0, 1.0, 1.0), 1.0), "M_GP_Soil": ("Lawn", 2.5, (0.42, 0.68, 0.3), 1.0),
         "M_GP_Play": ("Curb", 1.5, (0.85, 0.32, 0.2), 1.3), "M_GP_Sport": ("Curb", 2.0, (0.25, 0.55, 0.42), 1.2),
-        "M_GP_Fountain": ("Pavers", 1.0, (1.1, 1.1, 1.1), 0.6)}
+        "M_GP_Fountain": ("Pavers", 1.0, (1.1, 1.1, 1.1), 0.6), "M_GP_Gate": ("Asphalt", 2.0, (0.06, 0.06, 0.07), 0.8)}
 mis = {}
 for slot, (key, tm, tn, rsc) in LOOK.items():
     name = "MI_" + slot[2:]; path = MATD + "/" + name

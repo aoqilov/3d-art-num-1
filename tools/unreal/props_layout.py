@@ -74,6 +74,26 @@ for kind, g in pads.items():
                 put(*q, *(-d), 'prop_bench')
                 tt = (e1 - e0) / np.linalg.norm(e1 - e0); q2 = q + tt * 1.5
                 if free(q2, 0.3): put(*q2, *(-d), 'prop_bin')
+# equipment on the pads (local frame of the pad rectangle: u = long axis, v = short axis)
+zp = Z.get('pad', 0.03) * 100
+for kind, g in pads.items():
+    for p in (g.geoms if isinstance(g, MultiPolygon) else [g]):
+        c = np.array(p.centroid.coords[0])
+        if kind == 'fountain':
+            put(*c, 1, 0, 'prop_fountain', zp); put(*c, 1, 0, 'prop_jets', zp); continue
+        rr = np.array(p.minimum_rotated_rectangle.exterior.coords)[:4]
+        e1, e2 = rr[1] - rr[0], rr[2] - rr[1]
+        u, v = (e1, e2) if np.linalg.norm(e1) >= np.linalg.norm(e2) else (e2, e1)
+        hu, hv = np.linalg.norm(u) / 2, np.linalg.norm(v) / 2; u = u / (2 * hu); v = v / (2 * hv)
+        at = lambda a, b: c + u * a + v * b
+        if kind == 'play':
+            put(*at(-hu * 0.45, 0), *u, 'prop_dome', zp)
+            put(*at(hu * 0.35, hv * 0.4), *(-v), 'prop_slide', zp)
+            put(*at(hu * 0.35, -hv * 0.45), *v, 'prop_swing', zp)
+            for b in (-hv * 0.55, hv * 0.55): put(*at(-hu * 0.02, b), *u, 'prop_spring', zp)
+        elif kind == 'sport':
+            for a in (-1, 1): put(*at(a * (hu - 1.2), 0), *(-u * a), 'prop_hoop', zp)
+            for a in (-1, 1): put(*at(a * hu * 0.5, -(hv + 1.0)), *v, 'prop_pullup')
 # bollards along the courtyard-door paths
 for i in gp.BLOCKS:
     d0 = np.array(gp.web_xz(i, 13.25, gp.BD)); d1 = np.array(gp.web_xz(i, 13.25, gp.BD + 1)); v = d1 - d0; w = np.array([-v[1], v[0]])
