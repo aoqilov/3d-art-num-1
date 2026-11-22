@@ -151,6 +151,8 @@ for b in U['buildings']:
     if abs(h - 9.0) < 0.01 and b['area'] < 400:          # Overture's default 9 m = height unknown: a mahalla house
         h = 6.5 if hsh(str(b['id']) + 'f') < 0.25 else 3.6 + 0.9 * hsh(str(b['id']) + 'g')
     h = max(2.8, h); house = h < 7.0 and b['area'] < 400
+    if not house and b['area'] >= 350 and b['cat'] in ('other', 'residential') and h < 27.0:
+        h = 27.0                                           # owner 2026-11-22 (B4): the multi-storey blocks are 9 storeys
     z0 = b['base']; z1 = z0 + h + 0.3
     wall = lin((HOUSE_WALL if house else TALL_WALL)[int(hsh(b['id']) * 997) % (7 if house else 6)])
     run = 0.0

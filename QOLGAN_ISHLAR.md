@@ -23,7 +23,7 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 | B1 | **Asosiy yo'ldagi muhim binolar** batafsil: Ahmad Olmos to'yxonasi, Korzinka, Art House, Darvoza ko'chasidagi do'konlar, yangi baland binolar | Yandex skrinshotlaridan har binoning shakli → DXF'dagi o'z konturiga Blender'da model (fasad bo'laklari, vitrina, yozuv, tom). Har bino alohida `.glb`, `main_street_setup.py` ga qo'shiladi. **[S]** ustuvorlik ro'yxati va kerak bo'lsa qo'shimcha suratlar (har bino 2–3 rakursdan) | har bino 1–2 soat |
 | B2 ✅ | **Mahalla uylari realroq**: hozir quti + tom | (1) Fasad materiallari: mavjud Megascans `Plaster_Facade`, `Beige_Brick`, `Yellow_Brick` — uyga tasodifiy; (2) deraza o'rniga ramkali deraza teksturasi; (3) tom chetiga ozgina chiqish (karniz) | 2–3 soat |
 | B3 ✅ | **Mahalla devorlari va darvozalari** (Toshkent mahallasining eng ko'zga tashlanadigan qismi) | Ko'cha cheti bo'ylab, uylar orasidagi bo'shliqqa 2.2 m g'isht/suvoq devor, har uchastkaga temir darvoza. Joyi: yo'l maydoni cheti − 0.5 m, uy devorlari bilan kesishmasdan. Model Blender'da, instancing | 3 soat |
-| B4 | **Ko'p qavatli binolar** (976 ta): balandligi Overture'da noma'lum (9 m), balkonsiz | Sun'iy yo'ldosh soyasi yoki Yandex bo'yicha qavat sonini taxmin qilib bo'lmaydi → yaqin 300 m dagi ~30 ta binoni Yandex suratlaridan qo'lda tuzatish (JSON jadval: id → qavat). Fasadga balkon to'ri teksturasi. **[S]** qaysilari ko'rinadi deb belgilash | 2 soat + jadval |
+| B4 ✅ | **Ko'p qavatli binolar** (976 ta): balandligi Overture'da noma'lum (9 m), balkonsiz | Sun'iy yo'ldosh soyasi yoki Yandex bo'yicha qavat sonini taxmin qilib bo'lmaydi → yaqin 300 m dagi ~30 ta binoni Yandex suratlaridan qo'lda tuzatish (JSON jadval: id → qavat). Fasadga balkon to'ri teksturasi. **[S]** qaysilari ko'rinadi deb belgilash | 2 soat + jadval |
 | B5 ✅ | **Bordyur va trotuar balandligi**: hozir yo'l va yo'lak relyefga yopishgan, bordyur yo'q | Yo'l maydoni chetiga 15 sm bordyur tasmasi (majmuadagi `skirt` usuli), trotuarni 15 sm ko'tarish | 1.5 soat |
 | B6 ✅ | **Ko'cha jihozlari**: avtobus bekatlari, svetoforlar, yo'l belgilari, piyoda o'tish chiziqlari | Chorrahalar DXF markaz chiziqlari kesishmasidan; bekatlar — Yandex'dagi joylar. Modellar Blender'da (sodda) yoki Fab **[S]** | 3 soat |
 | B7 ✅ | **Daraxtlar ko'proq**: Meta xaritasidan atigi 1061 ta, haqiqatda mahallalar yashil | Ko'cha bo'ylab har 8–10 m qator (yo'l cheti bo'sh joyda), hovlilarga tasodifiy mevali daraxt. Uzoqdagilar uchun yengil variant (tezlik). Yangi daraxt turlari **[S]** Fab'dan (ixtiyoriy) | 2 soat |
@@ -87,6 +87,7 @@ Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya 
 - C4: kerak emas — majmua asfalti halqasimon tor yo'laklar, bollardlar har ~7 m da (rejani noto'g'ri baholagan edim)
 - C5: dog'lar rad etilgan webdagi atrof suratida ko'rilgan edi; u o'chirilgan, yangi renderlarda yo'q
 - C6: deraza miltillashi o'lchandi: kirishda 1112 → 153 piksel, hovlida 1 — yetarli
+- B4: egasi — 9 qavat: maydoni ≥ 350 m² bo'lgan 396 ta turar-joy/noma'lum bino 27 m (`urban_mesh.py`)
 - B7: `urban_trees2.py` — mahalla ko'chalarida devor bo'ylab 2495 daraxt (majmuadan 500 m ichida)
 
 ## Tavsiya etilgan tartib
