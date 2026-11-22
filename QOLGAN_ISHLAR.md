@@ -55,7 +55,7 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 
 | # | Ish | Qanday | ⏱ |
 |---|---|---|---|
-| E1 | Tayyor o'yin (packaged build) sinovi RTX 4060 da | Build → kamera nuqtalarida FPS; muharrirdan farqi | 1 soat |
+| E1 ✅* | Tayyor o'yin (packaged build) sinovi RTX 4060 da | Build → kamera nuqtalarida FPS; muharrirdan farqi | 1 soat |
 | E2 | RTX 5090 da sinov **[S]** (kompyuter kerak) | Xuddi shu o'lchov to'plami | — |
 | E3 | Shahar uchun soddalashtirish (agar E1 da past chiqsa) | Uzoq binolar/daraxtlarni World Partition HLOD yoki masofa bo'yicha yashirish | 1–2 soat |
 
@@ -90,6 +90,11 @@ Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya 
 - B4: egasi — 9 qavat: maydoni ≥ 350 m² bo'lgan 396 ta turar-joy/noma'lum bino 27 m (`urban_mesh.py`)
 - B8: `urban_ground_mat.py` — 400 m dan nari yer sun'iy yo'ldosh rangiga o'tadi (800 m da 75 %)
 - B9: tepadan tekshirildi (`render_set.mjs B9_tutashuv T_tepa…`): majmua yo'llari shimolda asosiy ko'chaga, g'arbda mahalla ko'chasiga ulangan, teshik yo'q
+- E1*: to'liq .exe yig'ilmadi — loyiha nomi `as` C# band so'zi, kod yig'ish buziladi (assetlarni tayyorlash — cook — 0 xato).
+  O'rniga muharrirsiz `-game` rejimida o'lchandi: kadr ~22 ms (~46 FPS), GPU 10.6 ms, protsessor (o'yin mantig'i) 20.8 ms.
+  Yo'lda topilib tuzatildi: o'yin boshida o'yinchi yerdan o'tib yiqilardi (endi 30 m pastga tushsa joyiga qaytadi);
+  `urban_setup.py` bordyur/devor/zebra/do'konlarni o'chirib yuborgan edi (qayta tiklandi); ekspozitsiya keshi oralig'i 2 → 8.
+  **.exe kerak bo'lsa:** loyiha nomini o'zgartirish kerak (masalan `ObodMaskan`) — egasi qarori.
 - B7: `urban_trees2.py` — mahalla ko'chalarida devor bo'ylab 2495 daraxt (majmuadan 500 m ichida)
 
 ## Tavsiya etilgan tartib
