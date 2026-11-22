@@ -47,9 +47,9 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 | # | Ish | Qanday | ⏱ |
 |---|---|---|---|
 | D1 | Kameralarni Yandex skrinshotlari joyiga moslash + S4 (mahalla) kamerani almashtirish | `render_cams.json` ni yangilash | 30 daq |
-| D2 | **Yakuniy yuqori sifatli renderlar** (4K) | Movie Render Queue: anti-aliasing 16+ namunalar, yuqori Lumen sifati; 10 kamera × 4 vaqt | 2 soat (asosan render vaqti) |
-| D3 | **Tepadan aylanma video** (fly-through) | Sequencer'da kamera yo'li (majmua atrofida aylana + hovliga tushish), 30–60 s, 1080p/4K | 2 soat |
-| D4 | Mualliflik yozuvlari (OSM, Overture, Copernicus, Meta, daraxt modellari) | Ilova va video oxiriga | 15 daq |
+| D2 ✅ | **Yakuniy yuqori sifatli renderlar** (4K) | Movie Render Queue: anti-aliasing 16+ namunalar, yuqori Lumen sifati; 10 kamera × 4 vaqt | 2 soat (asosan render vaqti) |
+| D3 ✅ | **Tepadan aylanma video** (fly-through) | Sequencer'da kamera yo'li (majmua atrofida aylana + hovliga tushish), 30–60 s, 1080p/4K | 2 soat |
+| D4 ✅ | Mualliflik yozuvlari (OSM, Overture, Copernicus, Meta, daraxt modellari) | Ilova va video oxiriga | 15 daq |
 
 ## E. Tezlik va tarqatish
 
@@ -95,6 +95,11 @@ Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya 
   Yo'lda topilib tuzatildi: o'yin boshida o'yinchi yerdan o'tib yiqilardi (endi 30 m pastga tushsa joyiga qaytadi);
   `urban_setup.py` bordyur/devor/zebra/do'konlarni o'chirib yuborgan edi (qayta tiklandi); ekspozitsiya keshi oralig'i 2 → 8.
   **.exe kerak bo'lsa:** loyiha nomini o'zgartirish kerak (masalan `ObodMaskan`) — egasi qarori.
+- D2: `tools/unreal/out/renders/D2_1440/` — 10 kamera × 13:00 / 19:30 / 20:30, 2560×1440. 4K (3840×2160) bu kompyuterda
+  buziladi (8 GB videoxotira yetmaydi: osmon qora, yoritish yo'q) — 4K RTX 5090 da
+- D3: `out/renders/D3_video/aylanma_1930.mp4` — oltin soatda majmua atrofida 15 s aylanma uchish (1080p, 24 kadr/s);
+  Movie Render Queue plagini o'chiq bo'lgani uchun kadrma-kadr (`ue_graphs/flythrough_frames.mjs`)
+- D4: `tools/unreal/CREDITS_UNREAL.md`
 - B7: `urban_trees2.py` — mahalla ko'chalarida devor bo'ylab 2495 daraxt (majmuadan 500 m ichida)
 
 ## Tavsiya etilgan tartib

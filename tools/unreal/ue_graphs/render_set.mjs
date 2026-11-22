@@ -43,7 +43,7 @@ pc.set_view_target_with_blend(c, 0.0)`);
     await wait(7); fg();
     const ms = []; for (let i = 0; i < 6; i++) { ms.push(parseFloat(String(await py(H + 'print(unreal.GameplayStatics.get_world_delta_seconds(w))')))); await wait(0.15); }
     ms.sort((a, b) => a - b);
-    await py(H + `unreal.SystemLibrary.execute_console_command(w, "HighResShot ${RES} filename=${OUT}/${cn}_${tn}")`); await wait(4);
+    await py(H + `unreal.SystemLibrary.execute_console_command(w, "HighResShot ${RES} filename=${OUT}/${cn}_${tn}")`); await wait(parseInt(RES) >= 2560 ? 9 : 4);
     const line = `${cn} ${tn} ${(ms[3] * 1000).toFixed(1)} ms`; log.push(line); console.log(line);
   }
 }
