@@ -27,8 +27,8 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 | B5 ✅ | **Bordyur va trotuar balandligi**: hozir yo'l va yo'lak relyefga yopishgan, bordyur yo'q | Yo'l maydoni chetiga 15 sm bordyur tasmasi (majmuadagi `skirt` usuli), trotuarni 15 sm ko'tarish | 1.5 soat |
 | B6 ✅ | **Ko'cha jihozlari**: avtobus bekatlari, svetoforlar, yo'l belgilari, piyoda o'tish chiziqlari | Chorrahalar DXF markaz chiziqlari kesishmasidan; bekatlar — Yandex'dagi joylar. Modellar Blender'da (sodda) yoki Fab **[S]** | 3 soat |
 | B7 ✅ | **Daraxtlar ko'proq**: Meta xaritasidan atigi 1061 ta, haqiqatda mahallalar yashil | Ko'cha bo'ylab har 8–10 m qator (yo'l cheti bo'sh joyda), hovlilarga tasodifiy mevali daraxt. Uzoqdagilar uchun yengil variant (tezlik). Yangi daraxt turlari **[S]** Fab'dan (ixtiyoriy) | 2 soat |
-| B8 | Uzoqdagi yer: hamma joy bir xil yashil | Sun'iy yo'ldosh suratini (2048 px) uzoq yerga rang qatlami sifatida aralashtirish; yaqinda Megascans | 1 soat |
-| B9 | Majmua chegarasi tutashuvlari: majmua ichki yo'llari ↔ shahar yo'llari, kirish joylari, parkovka rampalari | Har kirishni yerdan render qilib tekshirish, kerak joyda yo'l bo'lagini qo'shish | 1 soat |
+| B8 ✅ | Uzoqdagi yer: hamma joy bir xil yashil | Sun'iy yo'ldosh suratini (2048 px) uzoq yerga rang qatlami sifatida aralashtirish; yaqinda Megascans | 1 soat |
+| B9 ✅ | Majmua chegarasi tutashuvlari: majmua ichki yo'llari ↔ shahar yo'llari, kirish joylari, parkovka rampalari | Har kirishni yerdan render qilib tekshirish, kerak joyda yo'l bo'lagini qo'shish | 1 soat |
 
 ## C. Majmua — qolgan nuqsonlar
 
@@ -88,6 +88,8 @@ Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya 
 - C5: dog'lar rad etilgan webdagi atrof suratida ko'rilgan edi; u o'chirilgan, yangi renderlarda yo'q
 - C6: deraza miltillashi o'lchandi: kirishda 1112 → 153 piksel, hovlida 1 — yetarli
 - B4: egasi — 9 qavat: maydoni ≥ 350 m² bo'lgan 396 ta turar-joy/noma'lum bino 27 m (`urban_mesh.py`)
+- B8: `urban_ground_mat.py` — 400 m dan nari yer sun'iy yo'ldosh rangiga o'tadi (800 m da 75 %)
+- B9: tepadan tekshirildi (`render_set.mjs B9_tutashuv T_tepa…`): majmua yo'llari shimolda asosiy ko'chaga, g'arbda mahalla ko'chasiga ulangan, teshik yo'q
 - B7: `urban_trees2.py` — mahalla ko'chalarida devor bo'ylab 2495 daraxt (majmuadan 500 m ichida)
 
 ## Tavsiya etilgan tartib

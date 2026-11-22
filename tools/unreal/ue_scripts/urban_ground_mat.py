@@ -32,7 +32,37 @@ tinted = op(unreal.MaterialExpressionMultiply, alb, base, -550, -150)
 tinted = op(unreal.MaterialExpressionMultiply, tinted, K(3.0, -700, -50), -450, -150)
 l = E(unreal.MaterialExpressionLinearInterpolate, -300, -200)
 MEL.connect_material_expressions(base, "", l, "A"); MEL.connect_material_expressions(tinted, "", l, "B"); MEL.connect_material_expressions(K(MIX, -450, -50), "", l, "Alpha")
-MEL.connect_material_property(l, "", unreal.MaterialProperty.MP_BASE_COLOR)
+# B8 (2026-11-22): beyond ~400 m the ground takes the colour of the satellite image (maps-urban jpg, Sentinel-2 / EOX,
+# CC BY 4.0) - parks green, dry plots brown. UV from world position (out/sat_uv.json, urban_ground_mat via SAT).
+import json as _json
+SAT = _json.load(open(r"C:/Users/user/Desktop/3esd/3d-art-num-1/tools/unreal/out/sat_uv.json"))
+sp = "/Game/Kompleks/Urban/Tex/T_Satellite"
+if not EAL.does_asset_exist(sp):
+    t_ = unreal.AssetImportTask(); t_.filename = r"C:/Users/user/Desktop/3esd/3d-art-num-1/maps-urban/urban-export_41.3153_69.1912_2600x1890m.jpg"
+    t_.destination_path = "/Game/Kompleks/Urban/Tex"; t_.destination_name = "T_Satellite"; t_.automated = True; t_.replace_existing = True; t_.save = True
+    AT.import_asset_tasks([t_])
+sat_tex = unreal.load_asset(sp); sat_tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP); sat_tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+def V3_(rgb, x, y):
+    c = E(unreal.MaterialExpressionConstant3Vector, x, y); c.set_editor_property("constant", unreal.LinearColor(*rgb, 1)); return c
+w3 = E(unreal.MaterialExpressionWorldPosition, -1500, 600)
+su = op(unreal.MaterialExpressionAdd, op(unreal.MaterialExpressionDotProduct, w3, V3_((SAT["u"][0], SAT["u"][1], 0.0), -1350, 650), -1250, 600), K(SAT["u"][2], -1250, 680), -1150, 600)
+sv = op(unreal.MaterialExpressionAdd, op(unreal.MaterialExpressionDotProduct, w3, V3_((SAT["v"][0], SAT["v"][1], 0.0), -1350, 750), -1250, 720), K(SAT["v"][2], -1250, 800), -1150, 720)
+suv = op(unreal.MaterialExpressionAppendVector, su, sv, -1050, 650)
+sat = E(unreal.MaterialExpressionTextureSample, -900, 650); sat.set_editor_property("texture", sat_tex)
+MEL.connect_material_expressions(suv, "", sat, "UVs")
+satc = op(unreal.MaterialExpressionMultiply, sat, K(globals().get("SAT_GAIN", 0.75), -900, 800), -750, 700)
+# far = saturate((distance to the complex centre - 400 m) / 400 m) * SAT_MIX
+cen = V3_((2430.0, -830.0, 0.0), -1350, 900)
+dxy = E(unreal.MaterialExpressionComponentMask, -1150, 900)
+for k_ in "rgba": dxy.set_editor_property(k_, k_ in "rg")
+MEL.connect_material_expressions(op(unreal.MaterialExpressionSubtract, w3, cen, -1250, 900), "", dxy, "")
+dist = E(unreal.MaterialExpressionLength, -1050, 900); MEL.connect_material_expressions(dxy, "", dist, "")
+far = E(unreal.MaterialExpressionSaturate, -800, 900)
+MEL.connect_material_expressions(op(unreal.MaterialExpressionDivide, op(unreal.MaterialExpressionSubtract, dist, K(40000.0, -1000, 980), -900, 900), K(40000.0, -900, 980), -850, 900), "", far, "")
+farm = op(unreal.MaterialExpressionMultiply, far, K(globals().get("SAT_MIX", 0.75), -750, 980), -700, 900)
+l2 = E(unreal.MaterialExpressionLinearInterpolate, -150, -100)
+MEL.connect_material_expressions(l, "", l2, "A"); MEL.connect_material_expressions(satc, "", l2, "B"); MEL.connect_material_expressions(farm, "", l2, "Alpha")
+MEL.connect_material_property(l2, "", unreal.MaterialProperty.MP_BASE_COLOR)
 MEL.connect_material_property(nrm, "RGB", unreal.MaterialProperty.MP_NORMAL)
 MEL.connect_material_property(K(0.95, -300, 100), "", unreal.MaterialProperty.MP_ROUGHNESS)
 MEL.recompile_material(m); EAL.save_loaded_asset(m, False)
