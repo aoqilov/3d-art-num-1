@@ -1,0 +1,14 @@
+; BP_Drone: Tab / Esc toggle the mouse cursor while flying (the walking player's toggle does not run while the drone is possessed).
+(event EventBeginPlay)
+(event Collision|EventActorBeginOverlap (OtherActor))
+(event EventTick (DeltaSeconds)
+  (bind c (Input|EnhancedActionValues|IA_Cursor))
+  (if (and c (not (Variables|Default|GetPrevCursor)))
+    (bind pc (Game|GetPlayerController :PlayerIndex 0))
+    (bind on (not (Class|PlayerController|GetShowMouseCursor :self pc)))
+    (Class|PlayerController|SetShowMouseCursor :self pc :bShowMouseCursor on)
+    (if on
+      (Input|SetInputModeGameAndUI :PlayerController pc :bHideCursorDuringCapture false)
+      (else
+        (Input|SetInputModeGameOnly :PlayerController pc))))
+  (Variables|Default|SetPrevCursor c))

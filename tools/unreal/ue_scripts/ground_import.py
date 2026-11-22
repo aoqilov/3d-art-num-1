@@ -98,4 +98,9 @@ for x in eas.get_all_level_actors():
 g = eas.spawn_actor_from_object(mesh, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0))
 g.set_actor_label("Kompleks_Ground"); g.set_folder_path("Kompleks"); g.tags = [unreal.Name("Kompleks")]
 g.set_editor_property("is_spatially_loaded", False)
+# 2026-11-22: block 1's own site paving (Blok1_Site_Ground, import_blok1.py) lay in the same plane as this ground along the
+# block front (owner: pavement strip flickering). It goes 1 cm under, so the complex ground shows; absolute, safe to re-run.
+for x in eas.get_all_level_actors():
+    if x.get_actor_label() == "Blok1_Site_Ground":
+        p = x.get_actor_location(); x.set_actor_location(unreal.Vector(p.x, p.y, 1.0), False, False)
 print("ground ok", mesh.get_name(), [str(s.material_slot_name) for s in mesh.static_materials])

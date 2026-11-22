@@ -34,7 +34,7 @@ lp = MATD + "/M_PK_LightE"
 if not EAL.does_asset_exist(lp):
     m = AT.create_asset("M_PK_LightE", MATD, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
-    c = MEL.create_material_expression(m, unreal.MaterialExpressionConstant3Vector, -300, 0); c.set_editor_property("constant", unreal.LinearColor(6.0, 6.2, 6.5, 1))
+    c = MEL.create_material_expression(m, unreal.MaterialExpressionConstant3Vector, -300, 0); c.set_editor_property("constant", unreal.LinearColor(600.0, 620.0, 650.0, 1))
     MEL.connect_material_property(c, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     MEL.recompile_material(m); EAL.save_loaded_asset(m, False)
 mis["M_PK_Light"] = unreal.load_asset(lp)
@@ -55,7 +55,7 @@ for k, (x, y) in enumerate(P["lights"]):
     pl = eas.spawn_actor_from_class(unreal.PointLight, unreal.Vector(x * 100, -y * 100, zc))
     pl.set_actor_label("Kompleks_PkL_%d" % k); pl.set_folder_path("Kompleks/Parking")
     lc = pl.get_component_by_class(unreal.PointLightComponent)
-    lc.set_editor_property("intensity_units", unreal.LightUnits.LUMENS); lc.set_editor_property("intensity", 60.0)
+    lc.set_editor_property("intensity_units", unreal.LightUnits.LUMENS); lc.set_editor_property("intensity", 6000.0)  # 2026-11-22 physical units: sun 120000 lux, local lights and emissives x100 (were scene scale, sun 6 lux)
     lc.set_editor_property("use_temperature", True); lc.set_editor_property("temperature", 5000.0)
     lc.set_editor_property("attenuation_radius", 1600.0); lc.set_editor_property("source_radius", 30.0)
     lc.set_editor_property("cast_shadows", False)

@@ -66,11 +66,13 @@
       (Rendering|SetOwnerNoSee :self (Variables|Character|GetMesh) :bNewOwnerNoSee true)
       (Variables|Pawn|SetUseControllerRotationYaw true)
       (Class|CharacterMovementComponent|SetOrientRotationtoMovement :self (Variables|Character|GetCharacterMovement) :bOrientRotationToMovement false)))
+  ; Tab / Esc toggle the mouse cursor. The state is the controller's ShowMouseCursor (the drone toggles it too).
+  (bind pc2 (Game|GetPlayerController :PlayerIndex 0))
+  (Variables|Default|SetCursorOn (Class|PlayerController|GetShowMouseCursor :self pc2))
   (bind c (Input|EnhancedActionValues|IA_Cursor))
   (if (and c (not (Variables|Default|GetPrevCursor)))
     (bind on (not (Variables|Default|GetCursorOn)))
     (Variables|Default|SetCursorOn on)
-    (bind pc2 (Game|GetPlayerController :PlayerIndex 0))
     (Class|PlayerController|SetShowMouseCursor :self pc2 :bShowMouseCursor on)
     (if on
       (Input|SetInputModeGameAndUI :PlayerController pc2 :bHideCursorDuringCapture false)

@@ -10,6 +10,8 @@ sms = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
 eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 SDS = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem); BFL = unreal.SubobjectDataBlueprintFunctionLibrary
 P = json.load(open(ROOT + "/out/props.json"))
+DROP = {"prop_lamp"}   # 2026-11-22 owner: the old box-head lamp is gone; slim lamps at the same spots: street_lamps_setup.py
+P = [r for r in P if r[5] not in DROP]
 P = {"prop": P}
 MODELS = {"prop": ["prop_lamp", "prop_bench", "prop_bin", "prop_bollard", "prop_dome", "prop_slide", "prop_swing", "prop_spring",
                    "prop_hoop", "prop_pullup", "prop_fountain", "prop_jets"]}     # build_props.py placeholders
@@ -43,7 +45,7 @@ for ids in MODELS.values():
 for a in eas.get_all_level_actors():
     if a.get_actor_label().startswith("Kompleks_Props_"): eas.destroy_actor(a)
 counts = {}
-for kind, rows in P.items():
+for kind, rows in ({"prop": P} if isinstance(P, list) else P).items():   # props.json is a flat row list
     by = {}
     for r in rows:
         m = r[5] if len(r) > 5 else MODELS[kind][0]       # rows: x, y, z, yaw, scale[, model, z-scale (0 = uniform)]
@@ -92,7 +94,7 @@ if "prop_jets" in mesh and "prop_jets" not in MAP:
 for a in eas.get_all_level_actors():
     if a.get_actor_label().startswith("Kompleks_L_"): eas.destroy_actor(a)
 nl = 0
-for r in json.load(open(ROOT + "/out/props.json")):
+for r in P:
     x, y, z, yaw, sc, m = r[:6]
     if m not in ("prop_lamp", "prop_bollard"): continue
     lamp = m == "prop_lamp"
@@ -100,8 +102,8 @@ for r in json.load(open(ROOT + "/out/props.json")):
     pl.set_actor_label("Kompleks_L_%d" % nl); pl.set_folder_path("Kompleks/Chiroqlar")
     lc = pl.get_component_by_class(unreal.PointLightComponent)
     lc.set_editor_property("intensity_units", unreal.LightUnits.LUMENS)
-    lc.set_editor_property("intensity", 45.0 if lamp else 4.0)            # scene scale: the level sun is 6 lux (see ui_setup_blok1.py)
-    lc.set_editor_property("use_temperature", True); lc.set_editor_property("temperature", 3200.0)
+    lc.set_editor_property("intensity", 4500.0 if lamp else 400.0)  # 2026-11-22 physical units: sun 120000 lux, local lights and emissives x100 (were scene scale, sun 6 lux)
+    lc.set_editor_property("use_temperature", True); lc.set_editor_property("temperature", 4000.0)   # 2026-11-22: neutral LED street light (3200 K made the night orange)
     lc.set_editor_property("attenuation_radius", 1500.0 if lamp else 350.0)
     lc.set_editor_property("source_radius", 10.0)
     lc.set_editor_property("cast_shadows", False)

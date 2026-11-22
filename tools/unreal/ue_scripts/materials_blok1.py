@@ -132,7 +132,7 @@ def build_emissive():
     c = expr(m, unreal.MaterialExpressionVectorParameter, -500, 0)
     c.set_editor_property("parameter_name", "Color"); c.set_editor_property("default_value", hexlin("#fff1dc"))
     s = expr(m, unreal.MaterialExpressionScalarParameter, -500, 150)
-    s.set_editor_property("parameter_name", "Strength"); s.set_editor_property("default_value", 20.0)
+    s.set_editor_property("parameter_name", "Strength"); s.set_editor_property("default_value", 2000.0)
     mul = expr(m, unreal.MaterialExpressionMultiply, -250, 50)
     MEL.connect_material_expressions(c, "", mul, "A"); MEL.connect_material_expressions(s, "", mul, "B")
     MEL.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
@@ -154,7 +154,7 @@ def build_glow():
     c = expr(m, unreal.MaterialExpressionVectorParameter, -500, 0)
     c.set_editor_property("parameter_name", "Color"); c.set_editor_property("default_value", hexlin("#ffd9a0"))
     s = expr(m, unreal.MaterialExpressionScalarParameter, -500, 150)
-    s.set_editor_property("parameter_name", "Strength"); s.set_editor_property("default_value", 30.0)
+    s.set_editor_property("parameter_name", "Strength"); s.set_editor_property("default_value", 3000.0)
     mul = expr(m, unreal.MaterialExpressionMultiply, -250, 50)
     MEL.connect_material_expressions(c, "", mul, "A"); MEL.connect_material_expressions(s, "", mul, "B")
     MEL.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
@@ -215,8 +215,8 @@ MAP = {
     "M_Radiator":     ("MI_Radiator",     S("#f2f2f0", 0.3, 0.0)),
     "M_Boiler":       ("MI_Boiler",       S("#f4f4f2", 0.22, 0.0)),
     "M_LightRim":     ("MI_LightRim",     S("#e9e9e7", 0.35, 0.6)),
-    "M_LightEmit":    ("MI_LightEmit",    ("emit", {"Color": hexlin("#fff1dc")}, {"Strength": 8.0})),
-    "M_LampPublic":   ("MI_LampPublic",   ("emit", {"Color": hexlin("#eef3ff")}, {"Strength": 5.0})),   # neutral corridor plafonds
+    "M_LightEmit":    ("MI_LightEmit",    ("emit", {"Color": hexlin("#fff1dc")}, {"Strength": 800.0})),  # 2026-11-22 physical units: sun 120000 lux, local lights and emissives x100 (were scene scale, sun 6 lux)
+    "M_LampPublic":   ("MI_LampPublic",   ("emit", {"Color": hexlin("#eef3ff")}, {"Strength": 500.0})),   # neutral corridor plafonds
     "M_LiftBtn":      ("MI_LiftBtnOff",   S("#3a3d42", 0.35, 0.8)),          # lift call button, off (MI_LiftBtnOn below)
     "M_PilasterDark": ("MI_PilasterDark", P("#a48a72")),
     "M_Recess":       ("MI_Recess",       P("#cfccc5")),
@@ -231,7 +231,7 @@ made = {}
 for slot, (name, (kind, vec, sca)) in MAP.items():
     made[slot] = instance(name, {"plaster": plaster, "solid": solid, "glass": glass, "emit": emissive}[kind], vec, sca)
 
-instance("MI_LiftBtnOn", glow, {"Color": hexlin("#ffd9a0")}, {"Strength": 30.0})
+instance("MI_LiftBtnOn", glow, {"Color": hexlin("#ffd9a0")}, {"Strength": 3000.0})
 
 def apply_all():
     reg = unreal.AssetRegistryHelpers.get_asset_registry()

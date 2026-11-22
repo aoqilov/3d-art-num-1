@@ -24,20 +24,10 @@ def emissive(name, rgb, k, wash=False):
     s.set_editor_property("parameter_name", "Glow"); s.set_editor_property("default_value", k)
     mul = MEL.create_material_expression(m, unreal.MaterialExpressionMultiply, -200, 0)
     MEL.connect_material_expressions(c, "", mul, "A"); MEL.connect_material_expressions(s, "", mul, "B")
-    # night factor from the sun itself (no Blueprint): the time bar sets the sun's intensity to 0 at night (dusk 20:00+),
-    # so night = 1 - sun illuminance (lux, scene scale: 8 by day). The sun DIRECTION is not usable: it reads as unset
-    # while the light is off (tested 2026-11-20).
-    sd = MEL.create_material_expression(m, unreal.MaterialExpressionSkyAtmosphereLightIlluminance, -900, 300)
-    zc = MEL.create_material_expression(m, unreal.MaterialExpressionComponentMask, -700, 300)
-    for k, v in (("r", False), ("g", True), ("b", False), ("a", False)): zc.set_editor_property(k, v)
-    MEL.connect_material_expressions(sd, "", zc, "")
-    k2 = MEL.create_material_expression(m, unreal.MaterialExpressionConstant, -700, 420); k2.set_editor_property("r", 1.5)
-    sc0 = MEL.create_material_expression(m, unreal.MaterialExpressionMultiply, -550, 300)
-    MEL.connect_material_expressions(zc, "", sc0, "A"); MEL.connect_material_expressions(k2, "", sc0, "B")
-    sc = MEL.create_material_expression(m, unreal.MaterialExpressionOneMinus, -400, 300)
-    MEL.connect_material_expressions(sc0, "", sc, "")
-    sat = MEL.create_material_expression(m, unreal.MaterialExpressionSaturate, -250, 300)
-    MEL.connect_material_expressions(sc, "", sat, "")
+    # night factor = MPC_Blok1.LightOn (0..1), the time bar's light alpha: follows "Chiroq: Avto / Yoniq / O'chiq" like
+    # the street lamps. (Was 1 - 1.5 x sun lux, tied to the old 8-lux scene-scale sun; 2026-11-22 physical units.)
+    sat = MEL.create_material_expression(m, unreal.MaterialExpressionCollectionParameter, -400, 300)
+    sat.set_editor_property("collection", unreal.load_asset("/Game/Blok1/Mat/MPC_Blok1")); sat.set_editor_property("parameter_name", "LightOn")
     em = MEL.create_material_expression(m, unreal.MaterialExpressionMultiply, -80, 100)
     MEL.connect_material_expressions(mul, "", em, "A"); MEL.connect_material_expressions(sat, "", em, "B")
     if wash:
@@ -79,8 +69,8 @@ for a in eas.get_all_level_actors():
     if a.get_actor_label().startswith(("Kompleks_Night_", "Kompleks_PortalL_", "Kompleks_WashL_")): eas.destroy_actor(a)
 AT.import_asset_tasks([t])
 mesh = next(o for o in (unreal.load_asset(p) for p in t.imported_object_paths) if isinstance(o, unreal.StaticMesh))
-led, gold = emissive("M_LedNight", (1.0, 0.78, 0.5), 8.0), emissive("M_LedGold", (1.0, 0.7, 0.3), 25.0)
-wash = emissive("M_LedWash", (1.0, 0.72, 0.42), 0.12, wash=True)
+led, gold = emissive("M_LedNight", (1.0, 0.78, 0.5), 800.0), emissive("M_LedGold", (1.0, 0.7, 0.3), 2500.0)  # 2026-11-22 physical units: sun 120000 lux, local lights and emissives x100 (were scene scale, sun 6 lux)
+wash = emissive("M_LedWash", (1.0, 0.72, 0.42), 12.0, wash=True)
 for i, s in enumerate(mesh.static_materials):
     n_ = str(s.material_slot_name)
     mesh.set_material(i, wash if "Wash" in n_ else gold if "Gold" in n_ else led)
@@ -101,7 +91,8 @@ for i in sorted(BLOCKS):
     a.static_mesh_component.set_editor_property("cast_shadow", False)
     a.set_editor_property("is_spatially_loaded", False)
     c, s_ = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
-    for k, (px, py, pz, lm) in enumerate(((14.85, -2.4, 2.6, 60.0), (14.85, -2.6, 9.0, 45.0))):
+    # 2026-11-22 owner: light the building only up to the 1st floor (the 9 m portal light lit 6 storeys)
+    for k, (px, py, pz, lm) in enumerate(((14.85, -2.4, 2.6, 3000.0),)):
         px *= sx; py *= sy
         pl = eas.spawn_actor_from_class(unreal.PointLight, unreal.Vector(x + (px * c - py * s_) * 100, y + (px * s_ + py * c) * 100, 2.0 + pz * 100))
         pl.set_actor_label("Kompleks_PortalL_B%02d_%d" % (i, k)); pl.set_folder_path("Kompleks/Tun")
@@ -114,7 +105,7 @@ for i in sorted(BLOCKS):
         pl.tags = TAGS; pl.set_editor_property("is_spatially_loaded", False)
     n += 1
 # street lamp heads / bollard slots glow only at night too: same night material on their glow slots
-lamp = emissive("M_LampGlowNight", (1.0, 0.85, 0.65), 25.0)
+lamp = emissive("M_LampGlowNight", (1.0, 0.85, 0.65), 2500.0)
 for pm in ("prop_lamp", "prop_bollard"):
     for pth in EAL.list_assets("/Game/Kompleks/Props/" + pm, recursive=True):
         a = EAL.load_asset(pth)

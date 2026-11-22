@@ -9,7 +9,7 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, meshopt, prune, textureCompress } from '@gltf-transform/functions';
 import { MeshoptEncoder } from 'meshoptimizer';
 import sharp from 'sharp';
-const blender = process.env.BLENDER || (existsSync('D:/blender.exe') ? 'D:/blender.exe' : 'blender');
+const blender = process.env.BLENDER || ['D:/blender-program/blender.exe', 'D:/blender.exe'].find((p) => existsSync(p)) || 'blender';
 if (!process.argv.includes('--no-blender')) {
   execFileSync('node', ['tools/yard_glb/fetch.mjs'], { stdio: 'inherit' });
   execFileSync(blender, ['-b', '--factory-startup', '-P', 'tools/yard_glb/build.py', '--', 'tools/yard_glb/src', 'tools/yard_glb/out'], { stdio: 'inherit' });

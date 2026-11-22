@@ -65,6 +65,7 @@ for i in range(len(fp)):
         for k in range(n):
             sc = f0 + w * (k + 0.5) / n; x, y = ax + tx * sc, ay + ty * sc
             if ny < -0.5 and y < 0.6 and 11.4 < x < 18.3: continue          # portal frame has its own gold lines
+            if abs(nx) > 0.5: continue          # 2026-11-22 owner: no vertical lines on the side (end) walls, only street / court
             piers.append((x, y, nx, ny))
 Z0, Z1 = 3.75, ROOF_Z + 1.15
 for x, y, nx, ny in piers:                                # 3.5 x 3 cm line standing 2 cm off the wall

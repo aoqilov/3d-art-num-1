@@ -38,8 +38,9 @@ with unreal.ScopedEditorTransaction("Blok-2 karkas"):
             c = a.static_mesh_component
             for i in range(c.get_num_materials()):
                 c.set_material(i, CONC)
-            c.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
-            a.set_actor_enable_collision(False)
+            # 2026-11-21 (owner: could not climb block 2): shells collide; BP_Qurilish.Show turns collision off on unbuilt storeys
+            c.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
+            c.set_collision_profile_name("BlockAll")
             n += 1
     print("block 2 storey actors", n, {k: len(v) for k, v in SETS.items()})
 

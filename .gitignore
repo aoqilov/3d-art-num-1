@@ -14,3 +14,8 @@ tools/unreal/kit_src/
 tools/unreal/kit_glb/
 model-for-fab/
 video-reference/
+# reference material, not ours to publish (Yandex panoramas, someone's renders, the 28 MB urban-export data)
+foto-reference/
+maps-urban/*
+!maps-urban/REJA.md
+!maps-urban/align.json

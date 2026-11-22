@@ -5,7 +5,9 @@
   (for _i (range 1 17)
     (bind acts (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "B2S" (Utilities|String|ToString(Integer) _i)))))
     (for e acts
-      (Rendering|SetActorHiddenInGame e (> _i n)))
+      (Rendering|SetActorHiddenInGame e (> _i n))
+      ; built storeys collide (floors, stair steps, walls), so the carcass can be walked and climbed
+      (Collision|SetActorEnableCollision e (<= _i n)))
     (bind nets (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "B2N" (Utilities|String|ToString(Integer) _i)))))
     (for s nets
       (Rendering|SetActorHiddenInGame s (or (not (Variables|Default|GetPardoz)) (> _i n)))))

@@ -7,6 +7,7 @@
 # out/model_map.json swaps a placeholder for real (Fab) assets without re-layout:
 #   {"jacaranda_tree": "/Game/Fab/.../SM_Tree"}                         one mesh
 #   {"yard_hedge": {"meshes": ["/Game/...VarC", "/Game/...VarD"], "fit": 1.3}}  variants mixed per instance, scale x fit
+#   optional "fit_xy" / "fit_z" (default: fit) scale width and height apart, e.g. a lower tree with a wider crown
 #   {"yard_gul_0": null}                                                 placeholder removed (no actor)
 # StaticMesh -> HierarchicalInstancedStaticMeshComponent; SkeletalMesh (Fab Megaplants, Nanite skinned foliage)
 # -> InstancedSkinnedMeshComponent.
@@ -40,18 +41,25 @@ def placeholder(m):
     return sm
 
 
-# model id -> ([meshes], fit); an empty list drops the model
+# model id -> ([meshes], (fit_xy, fit_z)); an empty list drops the model
 mesh = {}
 for ids in MODELS.values():
     for m in ids:
-        if m not in MAP: mesh[m] = ([placeholder(m)], 1.0); continue
+        if m not in MAP: mesh[m] = ([placeholder(m)], (1.0, 1.0)); continue
         v = MAP[m]
-        if v is None: mesh[m] = ([], 1.0); continue
+        if v is None: mesh[m] = ([], (1.0, 1.0)); continue
         if isinstance(v, str): v = {"meshes": [v]}
         ms = [unreal.load_asset(p) for p in v["meshes"]]
         bad = [p for p, a in zip(v["meshes"], ms) if a is None]
         if bad: raise RuntimeError("model_map: missing assets %s" % bad)
-        mesh[m] = (ms, float(v.get("fit", 1.0)))
+        for sm in ms:      # Fab static foliage (Megascans boxwood, hydrangea) ships with classic LODs: they popped while walking -> Nanite
+            if isinstance(sm, unreal.StaticMesh):
+                s = sms.get_nanite_settings(sm)
+                if not s.enabled:
+                    s.enabled = True; s.set_editor_property("shape_preservation", unreal.NaniteShapePreservation.PRESERVE_AREA)
+                    sms.set_nanite_settings(sm, s, apply_changes=True); EAL.save_loaded_asset(sm, False)
+        f = float(v.get("fit", 1.0))
+        mesh[m] = (ms, (float(v.get("fit_xy", f)), float(v.get("fit_z", f))))
 
 for a in eas.get_all_level_actors():
     if a.get_actor_label().startswith("Kompleks_Plants_"): eas.destroy_actor(a)
@@ -70,6 +78,7 @@ def spawn(label, sm):
     else: comp.set_editor_property("static_mesh", sm)
     comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
     comp.set_editor_property("cast_shadow", True)
+    if "yard_hedge" in label: comp.set_evaluate_world_position_offset(False)   # clipped hedge: Megascans wind made its top edge shimmer
     act.set_editor_property("is_spatially_loaded", False)
     return comp, skinned
 
@@ -94,7 +103,7 @@ for kind, rows in P.items():
                 x, y, z, yaw, sc = r[:5]
                 sz = r[6] if len(r) > 6 and r[6] else sc
                 t = unreal.Transform(location=unreal.Vector(x, y, z), rotation=unreal.Rotator(roll=0.0, pitch=0.0, yaw=yaw),
-                                     scale=unreal.Vector(sc * fit, sc * fit, sz * fit))
+                                     scale=unreal.Vector(sc * fit[0], sc * fit[0], sz * fit[1]))
                 if skinned: comp.add_instance(t, 0)
                 else: comp.add_instance(t, True)
             counts[label] = comp.get_instance_count()
