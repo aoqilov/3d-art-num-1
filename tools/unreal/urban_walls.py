@@ -37,6 +37,12 @@ lines = road.buffer(OFFSET, join_style='mitre').boundary
 lines = lines.intersection(zone).difference(major).difference(allb).difference(SITE.buffer(10.0)).difference(road.buffer(OFFSET - 0.05))
 parts = [g for g in (lines.geoms if hasattr(lines, 'geoms') else [lines]) if g.geom_type == 'LineString' and g.length > 3.0]
 print('wall runs', len(parts), 'length %.0f m' % sum(p.length for p in parts))
+# the wall lines + which side the road is on (for street trees, urban_trees2.py)
+json.dump([{'pts': [[round(c, 3) for c in p] for p in ln.coords],
+            'road_side': [1 if road.distance(Point(*(np.array(ln.interpolate(0.5, normalized=True).coords[0]) + np.array([-d[1], d[0]]) * 1.0))) <
+                          road.distance(Point(*(np.array(ln.interpolate(0.5, normalized=True).coords[0]) - np.array([-d[1], d[0]]) * 1.0))) else -1
+                          for d in [(lambda a_, b_: (b_ - a_) / (np.linalg.norm(b_ - a_) + 1e-9))(np.array(ln.coords[0]), np.array(ln.coords[-1]))]][0]}
+           for ln in parts], open(os.path.join(HERE, 'out', 'urban_wall_lines.json'), 'w'))
 
 P, UV, C, M = [], [], [], []
 def quad(a, b, c, d, want, m, col):
