@@ -1,0 +1,9 @@
+{
+ "plan_centre_in_urban_dxf": [
+  -491.96,
+  -313.13
+ ],
+ "phi_deg": 15.0,
+ "scene_to_urban": "ux = sx*cos15 + sz*sin15 + t0 ; uy = sx*sin15 - sz*cos15 + t1  (web scene metres -> urban DXF metres, north-up, origin = export centre 41.31527 N 69.19116 E)",
+ "how": "matched the web context.json buildings (CADMapper/OSM) to the urban-export buildings (Overture/OSM): big ones by area, then all by nearest centroid"
+}
