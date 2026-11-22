@@ -83,4 +83,9 @@
   (bind u (Input|EnhancedActionValues|IA_Use))
   (if (and u (not (Variables|Default|GetPrevUse)))
     (CallFunction|UseFocus))
-  (Variables|Default|SetPrevUse u))
+  (Variables|Default|SetPrevUse u)
+  ; 2026-11-22: fell out of the world (at the start the big city collision registers a moment late): back to the start spot
+  (bind loc (Transformation|GetActorLocation :self self))
+  (if (< (.z loc) -3000.0)
+    (Components|Movement|StopMovementImmediately :self (Variables|Character|GetCharacterMovement))
+    (Transformation|SetActorLocation :self self :NewLocation (+ (Transformation|GetActorLocation :self (Actor|GetActorOfClass "/Script/Engine.PlayerStart")) (Math|Vector|MakeVector 0.0 0.0 40.0)) :bTeleport true)))

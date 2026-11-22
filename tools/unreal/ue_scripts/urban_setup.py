@@ -31,7 +31,8 @@ t.automated = True; t.replace_existing = True; t.save = True
 AT.import_asset_tasks([t])
 meshes = [o for o in (unreal.load_asset(p) for p in t.imported_object_paths) if isinstance(o, unreal.StaticMesh)]
 for a in eas.get_all_level_actors():
-    if a.get_actor_label().startswith("Kompleks_Urban_"): eas.destroy_actor(a)
+    if a.get_actor_label() in ("Kompleks_Urban_Urban_Terrain", "Kompleks_Urban_Urban_Roads", "Kompleks_Urban_Urban_Walls", "Kompleks_Urban_Urban_Roofs"):
+        eas.destroy_actor(a)          # only its own 4 meshes (2026-11-22: a prefix match also removed curbs, walls, zebras, shops)
 for sm in meshes:
     for i, s in enumerate(sm.static_materials):
         n = str(s.material_slot_name); key = next((k for k in mats if n.startswith(k)), None)
@@ -51,6 +52,6 @@ for sm in meshes:
 n = 0
 for a in eas.get_all_level_actors():
     if isinstance(a, (unreal.Landscape, unreal.LandscapeStreamingProxy)) or type(a).__name__ == "WorldPartitionHLOD":   # the HLODs draw a landscape proxy
-        a.set_actor_hidden_in_game(True); a.set_is_temporarily_hidden_in_editor(True); a.set_actor_enable_collision(False); n += 1
+        a.set_actor_hidden_in_game(True); a.set_is_temporarily_hidden_in_editor(True); a.set_actor_enable_collision(False); n += 1   # flat z 0 would be an invisible floor over the lower relief
         for c in a.get_components_by_class(unreal.PrimitiveComponent): c.set_hidden_in_game(True); c.set_visibility(False)
 print("landscape hidden", n, "urban ok", len(meshes))
