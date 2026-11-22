@@ -11,10 +11,10 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 
 | # | Ish | Qanday | ⏱ |
 |---|---|---|---|
-| A1 | **Git commit** — 3 kunlik ish commit qilinmagan (Unreal skriptlari, `maps-urban/`, web o'zgarishlari) | Mavzular bo'yicha bir nechta commit. `maps-urban/` dagi 28 MB DXF va skrinshotlar `.gitignore` ga (repo ommaviy). **[S]** push ruxsati — repo PUBLIC | 20 daq |
-| A2 | Buzilgan `M_UR_GroundFlat` materialini o'chirish | Unreal yopiq paytda `D:\Projects\as\Content\Kompleks\Urban\Mat\M_UR_GroundFlat.uasset` ni o'chirish, keyin "Fix Up Redirectors". **[S]** ruxsat | 5 daq |
-| A3 | Eski keraksiz assetlar: `/Game/Kompleks/Context` (rad etilgan webdagi atrof), yashirilgan eski Landscape | Ishlatilmayotganini Reference Viewer bilan tekshirib o'chirish. Landscape — o'chirish yoki qoldirish **[S]** | 15 daq |
-| A4 | Tekshirilmay qolgan eski o'zgarishlar: Esc kursor, 2-blokka chiqish, shisha aksi (`DefaultEngine.ini`, Unreal qayta ochilgach) | O'yin ichida avtomatik sinov (`esc_t.mjs`) + render | 20 daq |
+| A1 ✅ | **Git commit** — 3 kunlik ish commit qilinmagan (Unreal skriptlari, `maps-urban/`, web o'zgarishlari) | Mavzular bo'yicha bir nechta commit. `maps-urban/` dagi 28 MB DXF va skrinshotlar `.gitignore` ga (repo ommaviy). **[S]** push ruxsati — repo PUBLIC | 20 daq |
+| A2 ✅ | Buzilgan `M_UR_GroundFlat` materialini o'chirish | Unreal yopiq paytda `D:\Projects\as\Content\Kompleks\Urban\Mat\M_UR_GroundFlat.uasset` ni o'chirish, keyin "Fix Up Redirectors". **[S]** ruxsat | 5 daq |
+| A3 ✅ | Eski keraksiz assetlar: `/Game/Kompleks/Context` (rad etilgan webdagi atrof), yashirilgan eski Landscape | Ishlatilmayotganini Reference Viewer bilan tekshirib o'chirish. Landscape — o'chirish yoki qoldirish **[S]** | 15 daq |
+| A4 ✅ | Tekshirilmay qolgan eski o'zgarishlar: Esc kursor, 2-blokka chiqish, shisha aksi (`DefaultEngine.ini`, Unreal qayta ochilgach) | O'yin ichida avtomatik sinov (`esc_t.mjs`) + render | 20 daq |
 
 ## B. Atrof shahar — sifat (asosiy ish)
 
@@ -22,9 +22,9 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 |---|---|---|---|
 | B1 | **Asosiy yo'ldagi muhim binolar** batafsil: Ahmad Olmos to'yxonasi, Korzinka, Art House, Darvoza ko'chasidagi do'konlar, yangi baland binolar | Yandex skrinshotlaridan har binoning shakli → DXF'dagi o'z konturiga Blender'da model (fasad bo'laklari, vitrina, yozuv, tom). Har bino alohida `.glb`, `main_street_setup.py` ga qo'shiladi. **[S]** ustuvorlik ro'yxati va kerak bo'lsa qo'shimcha suratlar (har bino 2–3 rakursdan) | har bino 1–2 soat |
 | B2 | **Mahalla uylari realroq**: hozir quti + tom | (1) Fasad materiallari: mavjud Megascans `Plaster_Facade`, `Beige_Brick`, `Yellow_Brick` — uyga tasodifiy; (2) deraza o'rniga ramkali deraza teksturasi; (3) tom chetiga ozgina chiqish (karniz) | 2–3 soat |
-| B3 | **Mahalla devorlari va darvozalari** (Toshkent mahallasining eng ko'zga tashlanadigan qismi) | Ko'cha cheti bo'ylab, uylar orasidagi bo'shliqqa 2.2 m g'isht/suvoq devor, har uchastkaga temir darvoza. Joyi: yo'l maydoni cheti − 0.5 m, uy devorlari bilan kesishmasdan. Model Blender'da, instancing | 3 soat |
+| B3 ✅ | **Mahalla devorlari va darvozalari** (Toshkent mahallasining eng ko'zga tashlanadigan qismi) | Ko'cha cheti bo'ylab, uylar orasidagi bo'shliqqa 2.2 m g'isht/suvoq devor, har uchastkaga temir darvoza. Joyi: yo'l maydoni cheti − 0.5 m, uy devorlari bilan kesishmasdan. Model Blender'da, instancing | 3 soat |
 | B4 | **Ko'p qavatli binolar** (976 ta): balandligi Overture'da noma'lum (9 m), balkonsiz | Sun'iy yo'ldosh soyasi yoki Yandex bo'yicha qavat sonini taxmin qilib bo'lmaydi → yaqin 300 m dagi ~30 ta binoni Yandex suratlaridan qo'lda tuzatish (JSON jadval: id → qavat). Fasadga balkon to'ri teksturasi. **[S]** qaysilari ko'rinadi deb belgilash | 2 soat + jadval |
-| B5 | **Bordyur va trotuar balandligi**: hozir yo'l va yo'lak relyefga yopishgan, bordyur yo'q | Yo'l maydoni chetiga 15 sm bordyur tasmasi (majmuadagi `skirt` usuli), trotuarni 15 sm ko'tarish | 1.5 soat |
+| B5 ✅ | **Bordyur va trotuar balandligi**: hozir yo'l va yo'lak relyefga yopishgan, bordyur yo'q | Yo'l maydoni chetiga 15 sm bordyur tasmasi (majmuadagi `skirt` usuli), trotuarni 15 sm ko'tarish | 1.5 soat |
 | B6 | **Ko'cha jihozlari**: avtobus bekatlari, svetoforlar, yo'l belgilari, piyoda o'tish chiziqlari | Chorrahalar DXF markaz chiziqlari kesishmasidan; bekatlar — Yandex'dagi joylar. Modellar Blender'da (sodda) yoki Fab **[S]** | 3 soat |
 | B7 | **Daraxtlar ko'proq**: Meta xaritasidan atigi 1061 ta, haqiqatda mahallalar yashil | Ko'cha bo'ylab har 8–10 m qator (yo'l cheti bo'sh joyda), hovlilarga tasodifiy mevali daraxt. Uzoqdagilar uchun yengil variant (tezlik). Yangi daraxt turlari **[S]** Fab'dan (ixtiyoriy) | 2 soat |
 | B8 | Uzoqdagi yer: hamma joy bir xil yashil | Sun'iy yo'ldosh suratini (2048 px) uzoq yerga rang qatlami sifatida aralashtirish; yaqinda Megascans | 1 soat |
@@ -70,6 +70,16 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya davom etadimi — qaror.
 
 ---
+
+## Bajarilganlar (2026-11-22)
+- A1: 2 commit, `unreal/fab-plants` GitHub'da; `maps-urban/` (DXF, Yandex) va `foto-reference/` repoga kirmaydi
+- A2: `M_UR_GroundFlat` zaxiraga ko'chirildi, Unreal qayta ochildi, sahna butun
+- A3: webdagi atrof meshlari o'chirildi (materiallari shaharda ishlatiladi — qoldi); eski Landscape yashirin holda qoldi
+- A4: 2-blokka chiqish ishlaydi; kursor mantig'i blueprint'da bor (avtomatik tugma sinovi o'tmadi — Windows tashqi
+  tugmani o'yin oynasiga bermaydi); **muharrirda Esc o'yinni to'xtatadi** (Unreal standarti) — u yerda Tab ishlatiladi;
+  shisha aksi qayta ochilgandan keyin yoqildi
+- B5: `urban_curbs.py` — 58 ming bo'lak, 15 sm bordyur barcha yo'l chetlarida
+- B3: `urban_walls.py` — mahalla ko'chalarida ~100 km devor, 5342 darvoza
 
 ## Tavsiya etilgan tartib
 1. **A1–A4** (tartib va xavfsizlik) — 1 soat
