@@ -90,6 +90,7 @@ with unreal.ScopedEditorTransaction("Blok-1 tugmalar uchun sozlash"):
                 # 2026-11-22: was 35 m with an 8 m fade -> lights switched off and on while walking (owner: flicker).
                 # 50 m with a 25 m fade dims them gradually; 100 m cost ~8.5 ms/frame (RTX 4060 laptop) for no visible gain.
                 lc.set_editor_property("max_draw_distance", 5000.0); lc.set_editor_property("max_distance_fade_range", 2500.0)
+                # (after this script: complex_fixes_c.py turns ~35 % of the flats dark for the night look)
                 # all block-1 lights carry "ChiroqIch": the time bar keeps them at 60 % by day (2026-11-22: corridors, stairs and
                 # shops too, they were dark by day; in physical units a lit room does not glow through the glass in sunlight)
                 pl.set_editor_property("tags", [unreal.Name("Blok1"), unreal.Name("S%d" % st), unreal.Name("ChiroqIch")])

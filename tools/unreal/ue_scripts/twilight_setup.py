@@ -13,7 +13,7 @@ a.tags = [unreal.Name("Shafaq")]
 c = a.get_component_by_class(unreal.DirectionalLightComponent)
 c.set_mobility(unreal.ComponentMobility.MOVABLE)
 for k, v in (("atmosphere_sun_light", True), ("atmosphere_sun_light_index", 1), ("intensity", 0.0), ("use_temperature", True),
-             ("temperature", 9000.0), ("cast_shadows", True), ("light_source_angle", 12.0), ("specular_scale", 0.3)):
+             ("temperature", 9000.0), ("cast_shadows", True), ("light_source_angle", 35.0), ("specular_scale", 0.3)):
     try: c.set_editor_property(k, v)
     except Exception as e: print("skip", k, e)
 print("twilight ok", a.get_actor_rotation())

@@ -35,11 +35,11 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 | # | Ish | Qanday | ⏱ |
 |---|---|---|---|
 | C1 | Hovli daraxtlari siyrak ("Forest" chinor) | Fab'dan qalin tojli park daraxti (jo'ka, chinor) **[S]**, yoki `PVE_Preset` dan barg zichligi oshirilgan variant (sinab ko'rish kerak) | 1 soat |
-| C2 | 1-blok tunda — barcha xonadonlar yonadi | Xonalar chiroqlariga tasodifiy yoqilish (60–70%), ichki yo'laklar doim yoniq | 1 soat |
-| C3 | Shafaq chirog'ining soyalari keskin | Soyani yumshatish (`light_source_angle` ↑) yoki o'chirish, renderda solishtirish | 20 daq |
-| C4 | Katta parkovka maydonlari o'rtasi tunda qorong'i | Maydon o'rtasiga 2–3 ta fonar | 30 daq |
-| C5 | Asfaltdagi och to'rtburchak dog'lar (avval ko'rilgan) | Manbasini topish (ustma-ust yuza yoki yorug'lik), tuzatish | 30 daq |
-| C6 | Ba'zi derazalar kunduz miltillaydi (Lumen aksi) | Unreal qayta ochilgach shisha aksi sozlamasi bilan qayta o'lchash; kerak bo'lsa yengil bloklar shishasini g'adir-budurroq | 30 daq |
+| C2 ✅ | 1-blok tunda — barcha xonadonlar yonadi | Xonalar chiroqlariga tasodifiy yoqilish (60–70%), ichki yo'laklar doim yoniq | 1 soat |
+| C3 ✅ | Shafaq chirog'ining soyalari keskin | Soyani yumshatish (`light_source_angle` ↑) yoki o'chirish, renderda solishtirish | 20 daq |
+| C4 ➖ | Katta parkovka maydonlari o'rtasi tunda qorong'i | Maydon o'rtasiga 2–3 ta fonar | 30 daq |
+| C5 ➖ | Asfaltdagi och to'rtburchak dog'lar (avval ko'rilgan) | Manbasini topish (ustma-ust yuza yoki yorug'lik), tuzatish | 30 daq |
+| C6 ✅ | Ba'zi derazalar kunduz miltillaydi (Lumen aksi) | Unreal qayta ochilgach shisha aksi sozlamasi bilan qayta o'lchash; kerak bo'lsa yengil bloklar shishasini g'adir-budurroq | 30 daq |
 | C7 | Fasad rangi: renderda krem, bizda pastki qavatlar yalpiz-yashil | **[S]** egasi qarori, keyin material rangi | 15 daq |
 
 ## D. Renderlar va taqdimot
@@ -82,6 +82,11 @@ Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya 
 - B3: `urban_walls.py` — mahalla ko'chalarida ~100 km devor, 5342 darvoza
 - B2: `urban_wall_mat.py` — uy va devorlarga Megascans suvoq / g'isht (qizg'ish ranglar g'isht), dunyo bo'yicha tekstura
 - B6: `urban_street.py` + `build_street_props.py` — 365 zebra, 101 svetofor (katta chorrahalar), 19 bekat, 868 mahalla fonari (350 m ichida 128 tasi nur sochadi)
+- C2: `complex_fixes_c.py` — 1-blokda tunda ~35 % xonadon qorong'i (181 chiroq), 1, 2, 5-qavatlar va umumiy joylar yoniq
+- C3: shafaq yorug'ligi soyasi yumshatildi (manba burchagi 12° → 35°)
+- C4: kerak emas — majmua asfalti halqasimon tor yo'laklar, bollardlar har ~7 m da (rejani noto'g'ri baholagan edim)
+- C5: dog'lar rad etilgan webdagi atrof suratida ko'rilgan edi; u o'chirilgan, yangi renderlarda yo'q
+- C6: deraza miltillashi o'lchandi: kirishda 1112 → 153 piksel, hovlida 1 — yetarli
 - B7: `urban_trees2.py` — mahalla ko'chalarida devor bo'ylab 2495 daraxt (majmuadan 500 m ichida)
 
 ## Tavsiya etilgan tartib
