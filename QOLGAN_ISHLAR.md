@@ -25,7 +25,7 @@ Ish qoidasi o'zgarmaydi: har bandda oldin/keyin render (`ue_graphs/render_set.mj
 | B3 ✅ | **Mahalla devorlari va darvozalari** (Toshkent mahallasining eng ko'zga tashlanadigan qismi) | Ko'cha cheti bo'ylab, uylar orasidagi bo'shliqqa 2.2 m g'isht/suvoq devor, har uchastkaga temir darvoza. Joyi: yo'l maydoni cheti − 0.5 m, uy devorlari bilan kesishmasdan. Model Blender'da, instancing | 3 soat |
 | B4 | **Ko'p qavatli binolar** (976 ta): balandligi Overture'da noma'lum (9 m), balkonsiz | Sun'iy yo'ldosh soyasi yoki Yandex bo'yicha qavat sonini taxmin qilib bo'lmaydi → yaqin 300 m dagi ~30 ta binoni Yandex suratlaridan qo'lda tuzatish (JSON jadval: id → qavat). Fasadga balkon to'ri teksturasi. **[S]** qaysilari ko'rinadi deb belgilash | 2 soat + jadval |
 | B5 ✅ | **Bordyur va trotuar balandligi**: hozir yo'l va yo'lak relyefga yopishgan, bordyur yo'q | Yo'l maydoni chetiga 15 sm bordyur tasmasi (majmuadagi `skirt` usuli), trotuarni 15 sm ko'tarish | 1.5 soat |
-| B6 | **Ko'cha jihozlari**: avtobus bekatlari, svetoforlar, yo'l belgilari, piyoda o'tish chiziqlari | Chorrahalar DXF markaz chiziqlari kesishmasidan; bekatlar — Yandex'dagi joylar. Modellar Blender'da (sodda) yoki Fab **[S]** | 3 soat |
+| B6 ✅ | **Ko'cha jihozlari**: avtobus bekatlari, svetoforlar, yo'l belgilari, piyoda o'tish chiziqlari | Chorrahalar DXF markaz chiziqlari kesishmasidan; bekatlar — Yandex'dagi joylar. Modellar Blender'da (sodda) yoki Fab **[S]** | 3 soat |
 | B7 ✅ | **Daraxtlar ko'proq**: Meta xaritasidan atigi 1061 ta, haqiqatda mahallalar yashil | Ko'cha bo'ylab har 8–10 m qator (yo'l cheti bo'sh joyda), hovlilarga tasodifiy mevali daraxt. Uzoqdagilar uchun yengil variant (tezlik). Yangi daraxt turlari **[S]** Fab'dan (ixtiyoriy) | 2 soat |
 | B8 | Uzoqdagi yer: hamma joy bir xil yashil | Sun'iy yo'ldosh suratini (2048 px) uzoq yerga rang qatlami sifatida aralashtirish; yaqinda Megascans | 1 soat |
 | B9 | Majmua chegarasi tutashuvlari: majmua ichki yo'llari ↔ shahar yo'llari, kirish joylari, parkovka rampalari | Har kirishni yerdan render qilib tekshirish, kerak joyda yo'l bo'lagini qo'shish | 1 soat |
@@ -81,6 +81,7 @@ Bular Unreal versiyasi ustuvor bo'lgani uchun to'xtatilgan. **[S]** web versiya 
 - B5: `urban_curbs.py` — 58 ming bo'lak, 15 sm bordyur barcha yo'l chetlarida
 - B3: `urban_walls.py` — mahalla ko'chalarida ~100 km devor, 5342 darvoza
 - B2: `urban_wall_mat.py` — uy va devorlarga Megascans suvoq / g'isht (qizg'ish ranglar g'isht), dunyo bo'yicha tekstura
+- B6: `urban_street.py` + `build_street_props.py` — 365 zebra, 101 svetofor (katta chorrahalar), 19 bekat, 868 mahalla fonari (350 m ichida 128 tasi nur sochadi)
 - B7: `urban_trees2.py` — mahalla ko'chalarida devor bo'ylab 2495 daraxt (majmuadan 500 m ichida)
 
 ## Tavsiya etilgan tartib
