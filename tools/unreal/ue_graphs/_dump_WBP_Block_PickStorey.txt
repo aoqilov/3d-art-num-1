@@ -1,0 +1,6 @@
+
+(fn PickStorey (F)
+  (Variables|Default|SetStorey (select (== (Variables|Default|GetStorey) F) 0 F))
+  (Variables|Default|SetSelApt -1)
+  (CallFunction|Cut :F (Variables|Default|GetStorey))
+  (CallFunction|Refresh))

@@ -1,0 +1,10 @@
+
+(fn WalkTo (X Y S)
+  (CallFunction|Cut :F 0)
+  (bind p (Game|GetPlayerPawn 0))
+  (Transformation|SetActorLocation :self p :NewLocation (Math|Vector|MakeVector :X (+ 1500.0 (* X 100.0)) :Y (+ -1500.0 (* Y 100.0)) :Z (+ 132.0 (* (Math|Conversions|ToFloat(Integer) (- S 1)) 300.0))) :bSweep false :bTeleport true)
+  (Game|Player|SetViewTargetWithBlend (Game|GetPlayerController 0) p 0.6)
+  (Variables|Default|SetWalking true)
+  (Widget|SetVisibility :self (Variables|WBP_Block|GetPage) :InVisibility "Collapsed")
+  (Widget|SetVisibility :self (Variables|WBP_Block|GetWalkBarBlur) :InVisibility "SelfHitTestInvisible")
+  (CallFunction|Cursor :On false))

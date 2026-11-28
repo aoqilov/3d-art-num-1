@@ -1,0 +1,7 @@
+
+(fn PickItem (K)
+  (bind b (Variables|Default|GetBlk))
+  (bind s (Variables|Default|GetStorey))
+  (bind ix (Utilities|Array|Get(acopy) (Variables|Default|GetFApt) (+ (* (+ (* (- b 1) 17) s) 7) K)))
+  (Variables|Default|SetSelApt (select (== (Variables|Default|GetSelApt) ix) -1 ix))
+  (CallFunction|Refresh))

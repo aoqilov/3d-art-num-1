@@ -1,0 +1,8 @@
+
+(fn Cursor (On)
+  (bind pc (Game|GetPlayerController 0))
+  (Class|PlayerController|SetShowMouseCursor :self pc :bShowMouseCursor On)
+  (if On
+    (Input|SetInputModeGameAndUI :PlayerController pc :InMouseLockMode "DoNotLock" :bHideCursorDuringCapture false)
+    (else
+      (Input|SetInputMode_GameOnly pc false))))

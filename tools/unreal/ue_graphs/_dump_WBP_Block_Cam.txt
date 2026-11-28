@@ -1,0 +1,5 @@
+
+(fn Cam (Suffix)
+  (bind cams (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append (Utilities|String|Append "SCam" (Utilities|String|ToString(Integer) (Variables|Default|GetBlk))) Suffix))))
+  (if (> (Utilities|Array|Length cams) 0)
+    (Game|Player|SetViewTargetWithBlend (Game|GetPlayerController 0) (Utilities|Array|Get(acopy) cams 0) 1.2)))

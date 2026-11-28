@@ -193,7 +193,7 @@ def main():
     out = {'note': 'tools/unreal/genplan2.py (designed); scene metres (x right, z down, origin plan centre)',
            'site': [r2(v) for v in np.array(SITE.exterior.coords)[:-1].ravel()],
            'road': rings(road), 'bed': rings(bed), 'soil': rings(soil), 'curb': rings(bed.difference(soil)),
-           'paving': rings(paving), 'under': rings(bld.buffer(2.0, join_style='mitre').intersection(site)),
+           'paving': rings(paving), 'under': rings(bld.buffer(2.0, join_style='mitre').intersection(site).difference(ramp_g)),   # 2026-11-23: was over 2 ramps (pavers through the ramp)
            'pads': {k: rings(v) for k, v in pads.items()}, 'walls': walls, 'ramps': ramps,
            'z': {'pave': Z_PAVE, 'road': Z_ROAD, 'curb': Z_CURB, 'soil': Z_SOIL, 'pad': Z_PAD},
            'trees': trees, 'young': [],

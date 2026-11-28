@@ -1,0 +1,12 @@
+
+(fn SetSec (S)
+  (Variables|Default|SetSec S)
+  (Variables|Default|SetSelApt -1)
+  (bind t4 (== (Utilities|Array|Get(acopy) (Variables|Default|GetBT4) (- (Variables|Default|GetBlk) 1)) 1))
+  (if (and (== S 2) t4)
+    (Variables|Default|SetStorey 9)
+    (else
+      (Variables|Default|SetStorey 0)))
+  (CallFunction|Cut :F (Variables|Default|GetStorey))
+  (if (== S 0) (CallFunction|Cam :Suffix ""))
+  (CallFunction|Refresh))

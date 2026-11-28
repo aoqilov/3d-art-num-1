@@ -1,0 +1,13 @@
+
+(fn Open (B)
+  (Variables|Default|SetBlk B)
+  (Variables|Default|SetSec 0)
+  (Variables|Default|SetStorey 0)
+  (Variables|Default|SetSelApt -1)
+  (Widget|SetVisibility :self self :InVisibility "SelfHitTestInvisible")
+  (Widget|SetVisibility :self (Variables|WBP_Block|GetPage) :InVisibility "SelfHitTestInvisible")
+  (Widget|SetVisibility :self (Variables|WBP_Block|GetWalkBarBlur) :InVisibility "Collapsed")
+  (CallFunction|Cut :F 0)
+  (CallFunction|Cam :Suffix "")
+  (CallFunction|Cursor :On true)
+  (CallFunction|Refresh))

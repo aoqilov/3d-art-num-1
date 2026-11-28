@@ -1,0 +1,10 @@
+
+(fn Cut (F)
+  (bind f (select (== (Variables|Default|GetBlk) 2) F 0))
+  (for i (range 1 17)
+    (bind acts (Actor|GetAllActorsWithTag (Utilities|String|StringToName (Utilities|String|Append "S" (Utilities|String|ToString(Integer) i)))))
+    (for a acts
+      (Rendering|SetActorHiddenInGame a (or (Actor|ActorHasTag a "DoorsIn") (and (> f 0) (> i f))))))
+  (bind fas (Actor|GetAllActorsWithTag "Fasad"))
+  (for a2 fas
+    (Rendering|SetActorHiddenInGame a2 (> f 0))))

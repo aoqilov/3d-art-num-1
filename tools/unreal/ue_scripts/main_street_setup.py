@@ -69,5 +69,6 @@ for a in eas.get_all_level_actors():
 a = eas.spawn_actor_from_object(sm, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0))
 a.set_actor_label("Kompleks_Urban_Main"); a.set_folder_path("Kompleks/Shahar")
 a.tags = [unreal.Name("Kompleks"), unreal.Name("Shahar")]; a.set_editor_property("is_spatially_loaded", False)
+a.static_mesh_component.set_collision_profile_name("NoCollision")   # 2026-11-23: else BlockAll re-enables it on reload
 a.static_mesh_component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
 print("main street ok", [str(s.material_slot_name) for s in sm.static_materials])

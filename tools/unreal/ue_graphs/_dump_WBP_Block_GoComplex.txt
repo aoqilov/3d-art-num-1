@@ -1,0 +1,10 @@
+
+(fn GoComplex ()
+  (CallFunction|Cut :F 0)
+  (Widget|SetVisibility :self self :InVisibility "Collapsed")
+  (bind ws (Widget|GetAllWidgetsOfClass :WidgetClass "/Game/Blok1/UI/WBP_Sales.WBP_Sales_C" :TopLevelOnly true))
+  (for w ws
+    (Widget|SetVisibility :self w :InVisibility "SelfHitTestInvisible"))
+  (bind cams (Actor|GetAllActorsWithTag "SCam0"))
+  (if (> (Utilities|Array|Length cams) 0)
+    (Game|Player|SetViewTargetWithBlend (Game|GetPlayerController 0) (Utilities|Array|Get(acopy) cams 0) 1.2)))

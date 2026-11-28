@@ -1,0 +1,7 @@
+
+(fn Usd (N)
+  (bind k (/ N 1000))
+  (bind r (Math|Integer|%(Integer) N 1000))
+  (bind rs (Utilities|String|ToString(Integer) r))
+  (return (select (< N 1000) (Utilities|String|Append "$" (Utilities|String|ToString(Integer) N))
+    (Utilities|String|Append (Utilities|String|Append (Utilities|String|Append "$" (Utilities|String|ToString(Integer) k)) " ") (select (< r 10) (Utilities|String|Append "00" rs) (select (< r 100) (Utilities|String|Append "0" rs) rs))))))

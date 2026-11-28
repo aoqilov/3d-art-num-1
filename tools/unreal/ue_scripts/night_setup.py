@@ -87,6 +87,9 @@ for i in sorted(BLOCKS):
     a = eas.spawn_actor_from_object(mesh, unreal.Vector(x, y, 2.0), unreal.Rotator(roll=0.0, pitch=0.0, yaw=yaw))
     a.set_actor_scale3d(unreal.Vector(sx, sy, 1.0))
     a.set_actor_label("Kompleks_Night_B%02d" % i); a.set_folder_path("Kompleks/Tun"); a.tags = TAGS
+    # 2026-11-23: the profile too — with BlockAll left on, a reload turns collision back on and the mesh's single convex
+    # hull wraps the whole block (the player could not climb the stairs past storey 1)
+    a.static_mesh_component.set_collision_profile_name("NoCollision")
     a.static_mesh_component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
     a.static_mesh_component.set_editor_property("cast_shadow", False)
     a.set_editor_property("is_spatially_loaded", False)

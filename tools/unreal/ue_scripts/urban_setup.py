@@ -47,6 +47,9 @@ for sm in meshes:
     a = eas.spawn_actor_from_object(sm, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0))
     a.set_actor_label("Kompleks_Urban_" + sm.get_name()); a.set_folder_path("Kompleks/Shahar")
     a.tags = [unreal.Name("Kompleks"), unreal.Name("Shahar")]; a.set_editor_property("is_spatially_loaded", False)
+    # 2026-11-23: set the profile too — BlockAll re-enables collision on reload; Walls/Roofs as one convex hull over the
+    # whole city then blocked the 3rd-person camera everywhere
+    a.static_mesh_component.set_collision_profile_name("BlockAll" if walk else "NoCollision")
     a.static_mesh_component.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS if walk else unreal.CollisionEnabled.NO_COLLISION)
     print("mesh", sm.get_name(), [str(s.material_slot_name) for s in sm.static_materials])
 n = 0
